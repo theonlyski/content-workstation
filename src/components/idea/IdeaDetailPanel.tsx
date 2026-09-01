@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { PILLAR_CONFIG, JOB_CONFIG, ANGLE_TYPES, type Idea, type Pillar, type Job } from '../../types';
+import { PILLAR_CONFIG, JOB_CONFIG, ANGLE_TYPES, type Idea, type Pillar, type Job, type AngleCandidate } from '../../types';
 import { useBoardStore } from '../../store/boardStore';
-import { generateAnglesAndClassify, generateHooks, generateCaption, generateRepurposed } from '../../lib/ai';
+import { useStyleProfileStore } from '../../store/styleProfileStore';
+import { generateAnglesAndClassify, generateHookCaption, generateRepurposed } from '../../lib/ai';
+import { styleProfileToPromptText } from '../../lib/styleProfile';
 
-type TabId = 'angle' | 'hooks' | 'caption' | 'repurpose' | 'review';
+type TabId = 'angle' | 'hook_caption' | 'repurpose' | 'review';
 
 interface Tab {
   id: TabId;
@@ -13,8 +15,7 @@ interface Tab {
 
 const TABS: Tab[] = [
   { id: 'angle', label: 'Angle' },
-  { id: 'hooks', label: 'Hooks' },
-  { id: 'caption', label: 'Caption' },
+  { id: 'hook_caption', label: 'Hook & Caption' },
   { id: 'repurpose', label: 'Repurpose' },
   { id: 'review', label: 'Review' },
 ];
@@ -22,6 +23,7 @@ const TABS: Tab[] = [
 export function IdeaDetailPanel() {
   const [activeTab, setActiveTab] = useState<TabId>('angle');
   const [isGenerating, setIsGenerating] = useState<string | null>(null);
+  const [checkedAngles, setCheckedAngles] = useState<Set<number>>(new Set());
   const panelRef = useRef<HTMLDivElement>(null);
 
   const currentBoard = useBoardStore(state => state.currentBoard);
@@ -29,6 +31,8 @@ export function IdeaDetailPanel() {
   const updateIdea = useBoardStore(state => state.updateIdea);
   const selectIdea = useBoardStore(state => state.selectIdea);
   const spinoffIdea = useBoardStore(state => state.spinoffIdea);
+  const styleProfile = useStyleProfileStore(state => state.profile);
+  const styleProfileText = styleProfile ? styleProfileToPromptText(styleProfile) : undefined;
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -46,13 +50,18 @@ export function IdeaDetailPanel() {
   // Safety: ensure new fields exist (migration for old data)
   if (!idea.angleCandidates) idea.angleCandidates = [];
   if (idea.selectedAngleIndex === undefined) idea.selectedAngleIndex = null;
-  if (!idea.hooks) idea.hooks = [];
-  if (idea.selectedHookIndex === undefined) idea.selectedHookIndex = null;
+  if (!idea.hookCaption) idea.hookCaption = { text: '', history: [], feedback: null };
   if (!idea.repurposed) idea.repurposed = { videoScript: '', carouselOutline: '', altCaption: '' };
   if (!idea.review) idea.review = { hookStrength: false, ctaClear: false, saveWorthy: false, standsAlone: false };
   if (idea.parentIdeaId === undefined) idea.parentIdeaId = null;
   if (!idea.pillarSource) idea.pillarSource = 'ai';
   if (!idea.jobSource) idea.jobSource = 'ai';
+  // Migrate old angle candidates to have kept/spawnedIdeaId
+  idea.angleCandidates = idea.angleCandidates.map(a => ({
+    ...a,
+    kept: a.kept ?? false,
+    spawnedIdeaId: a.spawnedIdeaId ?? null,
+  }));
 
   const isUnclassified = idea.pillar === null;
   const pillarConfig = idea.pillar ? PILLAR_CONFIG[idea.pillar] : null;
@@ -63,15 +72,20 @@ export function IdeaDetailPanel() {
   const handleGenerateAngles = async () => {
     setIsGenerating('angles');
     try {
-      const result = await generateAnglesAndClassify(idea.seedIdea);
+      const result = await generateAnglesAndClassify(idea.seedIdea, 6, styleProfileText);
+      const newCandidates: AngleCandidate[] = result.angles.map(a => ({
+        ...a,
+        kept: false,
+        spawnedIdeaId: null,
+      }));
       await updateIdea(idea.id, {
-        angleCandidates: result.angles,
-        selectedAngleIndex: result.angles.length > 0 ? 0 : null,
+        angleCandidates: [...idea.angleCandidates, ...newCandidates],
+        selectedAngleIndex: idea.selectedAngleIndex ?? (newCandidates.length > 0 ? idea.angleCandidates.length : null),
         pillar: result.pillar,
         pillarSource: 'ai',
         job: result.job,
         jobSource: 'ai',
-        stage: result.angles.length > 0 ? 'angled' : idea.stage,
+        stage: newCandidates.length > 0 ? 'angled' : idea.stage,
       });
     } catch (error) {
       console.error('Failed to generate angles:', error);
@@ -80,82 +94,95 @@ export function IdeaDetailPanel() {
     }
   };
 
-  const handleSelectAngle = (index: number) => {
-    // Toggle off if clicking the already-selected angle
-    if (idea.selectedAngleIndex === index) {
-      updateIdea(idea.id, { selectedAngleIndex: null });
+  const handleToggleAngleCheck = (index: number) => {
+    const newChecked = new Set(checkedAngles);
+    if (newChecked.has(index)) {
+      newChecked.delete(index);
     } else {
-      updateIdea(idea.id, {
-        selectedAngleIndex: index,
-        stage: 'angled',
-      });
+      newChecked.add(index);
     }
+    setCheckedAngles(newChecked);
   };
 
-  const handleSpinoff = async (angleIndex: number) => {
-    const candidate = idea.angleCandidates[angleIndex];
-    if (!candidate) return;
-    await spinoffIdea(idea.id, candidate.text, candidate.angleType);
+  const handleKeepSelected = async () => {
+    if (checkedAngles.size === 0) return;
+    
+    const indices = Array.from(checkedAngles).sort((a, b) => a - b);
+    const firstIndex = indices[0];
+    
+    // Update candidates with kept status
+    const updatedCandidates = idea.angleCandidates.map((c, i) => ({
+      ...c,
+      kept: checkedAngles.has(i) ? true : c.kept,
+    }));
+
+    // First kept becomes selectedAngleIndex
+    // Additional kept ones spin off into new ideas
+    const updates: Partial<Idea> = {
+      angleCandidates: updatedCandidates,
+      selectedAngleIndex: firstIndex,
+    };
+
+    await updateIdea(idea.id, updates);
+
+    // Spin off additional kept candidates
+    for (let i = 1; i < indices.length; i++) {
+      const candidate = idea.angleCandidates[indices[i]];
+      if (candidate) {
+        await spinoffIdea(idea.id, candidate.text, candidate.angleType);
+      }
+    }
+
+    setCheckedAngles(new Set());
   };
 
-  const handlePillarChange = (pillar: Pillar) => {
-    updateIdea(idea.id, {
-      pillar,
-      pillarSource: 'manual',
-    });
-  };
-
-  const handleJobChange = (job: Job) => {
-    updateIdea(idea.id, {
-      job,
-      jobSource: 'manual',
-    });
-  };
-
-  const handleGenerateHooks = async (count: number = 5) => {
+  const handleGenerateHookCaption = async () => {
     if (!selectedAngle) return;
-    setIsGenerating('hooks');
+    setIsGenerating('hook_caption');
     try {
-      const hooks = await generateHooks(idea.seedIdea, selectedAngle.text, count);
+      const newText = await generateHookCaption(idea.seedIdea, selectedAngle.text, styleProfileText);
+      const history = idea.hookCaption.text 
+        ? [...idea.hookCaption.history, idea.hookCaption.text]
+        : idea.hookCaption.history;
       await updateIdea(idea.id, {
-        hooks,
-        stage: 'hooked',
+        hookCaption: {
+          text: newText,
+          history,
+          feedback: null,
+        },
+        stage: 'hook_captioned',
       });
     } catch (error) {
-      console.error('Failed to generate hooks:', error);
+      console.error('Failed to generate hook+caption:', error);
     } finally {
       setIsGenerating(null);
     }
   };
 
-  const handleGenerateCaption = async () => {
-    if (idea.selectedHookIndex === null || !idea.hooks[idea.selectedHookIndex] || !selectedAngle) return;
-
-    setIsGenerating('caption');
-    try {
-      const selectedHook = idea.hooks[idea.selectedHookIndex];
-      const caption = await generateCaption(idea.seedIdea, selectedAngle.text, selectedHook.text);
-      await updateIdea(idea.id, {
-        caption,
-        stage: 'captioned',
-      });
-    } catch (error) {
-      console.error('Failed to generate caption:', error);
-    } finally {
-      setIsGenerating(null);
+  const handleRestoreHistory = (index: number) => {
+    const oldText = idea.hookCaption.history[index];
+    const newHistory = [...idea.hookCaption.history];
+    newHistory.splice(index, 1);
+    if (idea.hookCaption.text) {
+      newHistory.push(idea.hookCaption.text);
     }
+    updateIdea(idea.id, {
+      hookCaption: {
+        text: oldText,
+        history: newHistory,
+        feedback: null,
+      },
+    });
   };
 
   const handleGenerateRepurposed = async () => {
-    if (!selectedAngle) return;
+    if (!idea.hookCaption.text) return;
     setIsGenerating('repurpose');
     try {
-      const selectedHook = idea.hooks[idea.selectedHookIndex || 0];
       const repurposed = await generateRepurposed(
         idea.seedIdea,
-        selectedAngle.text,
-        selectedHook?.text || '',
-        idea.caption
+        selectedAngle?.text || '',
+        idea.hookCaption.text
       );
       await updateIdea(idea.id, {
         repurposed,
@@ -174,6 +201,29 @@ export function IdeaDetailPanel() {
     updateIdea(idea.id, {
       review: newReview,
       stage: allChecked ? 'reviewed' : idea.stage,
+    });
+  };
+
+  const handleFeedback = (feedback: 'up' | 'down' | null) => {
+    updateIdea(idea.id, {
+      hookCaption: {
+        ...idea.hookCaption,
+        feedback: idea.hookCaption.feedback === feedback ? null : feedback,
+      },
+    });
+  };
+
+  const handlePillarChange = (pillar: Pillar) => {
+    updateIdea(idea.id, {
+      pillar,
+      pillarSource: 'manual',
+    });
+  };
+
+  const handleJobChange = (job: Job) => {
+    updateIdea(idea.id, {
+      job,
+      jobSource: 'manual',
     });
   };
 
@@ -275,17 +325,27 @@ export function IdeaDetailPanel() {
               {isGenerating === 'angles'
                 ? 'Generating angles + classifying...'
                 : idea.angleCandidates.length > 0
-                ? 'Regenerate Angles'
+                ? 'Generate More Angles'
                 : 'Generate Angles'}
             </button>
 
             {idea.angleCandidates.length > 0 && (
               <div className="space-y-2">
-                <div className="text-xs text-gray-400">
-                  {idea.angleCandidates.length} angle candidates — select one to develop
+                <div className="flex items-center justify-between">
+                  <div className="text-xs text-gray-400">
+                    {idea.angleCandidates.length} angle candidates — check any to keep
+                  </div>
+                  {checkedAngles.size > 0 && (
+                    <button
+                      onClick={handleKeepSelected}
+                      className="rounded-sm border border-green-500 bg-green-500/20 px-3 py-1 text-xs text-green-400 hover:bg-green-500/30"
+                    >
+                      Keep {checkedAngles.size} selected
+                    </button>
+                  )}
                 </div>
                 {idea.angleCandidates.map((candidate, idx) => {
-                  const isSelected = idea.selectedAngleIndex === idx;
+                  const isChecked = checkedAngles.has(idx);
                   const angleTypeLabel = ANGLE_TYPES.find(t => t.value === candidate.angleType)?.label || candidate.angleType;
                   
                   return (
@@ -293,35 +353,24 @@ export function IdeaDetailPanel() {
                       key={idx}
                       className="rounded-sm border p-3 transition-all"
                       style={{
-                        borderColor: isSelected ? 'var(--color-accent)' : 'var(--color-border)',
-                        backgroundColor: isSelected ? 'rgba(6, 182, 212, 0.05)' : 'var(--color-surface)',
+                        borderColor: candidate.kept ? 'var(--color-accent)' : isChecked ? 'var(--color-accent)' : 'var(--color-border)',
+                        backgroundColor: candidate.kept ? 'rgba(6, 182, 212, 0.1)' : isChecked ? 'rgba(6, 182, 212, 0.05)' : 'var(--color-surface)',
                       }}
                     >
-                      <div className="mb-2 flex items-start justify-between gap-2">
+                      <div className="mb-2 flex items-start gap-2">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => handleToggleAngleCheck(idx)}
+                          className="mt-1 h-4 w-4 rounded border-[var(--color-border)] bg-[var(--color-base)] text-[var(--color-accent)] focus:ring-[var(--color-accent)]"
+                        />
                         <div className="flex-1">
                           <div className="mb-1 text-xs text-gray-500">{angleTypeLabel}</div>
                           <div className="text-sm text-gray-200">{candidate.text}</div>
+                          {candidate.kept && (
+                            <div className="mt-1 text-xs text-[var(--color-accent)]">✓ Kept</div>
+                          )}
                         </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleSelectAngle(idx)}
-                          className="rounded-sm border px-2 py-1 text-xs transition-colors"
-                          style={{
-                            borderColor: isSelected ? 'var(--color-accent)' : 'var(--color-border)',
-                            color: isSelected ? 'var(--color-accent)' : 'var(--color-text)',
-                            backgroundColor: isSelected ? 'rgba(6, 182, 212, 0.1)' : 'transparent',
-                          }}
-                        >
-                          {isSelected ? '✓ Selected' : 'Select'}
-                        </button>
-                        <button
-                          onClick={() => handleSpinoff(idx)}
-                          data-action="spinoff"
-                          className="rounded-sm border border-[var(--color-border)] px-2 py-1 text-xs text-gray-400 transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
-                        >
-                          Spin off as new idea
-                        </button>
                       </div>
                     </div>
                   );
@@ -331,7 +380,7 @@ export function IdeaDetailPanel() {
           </div>
         )}
 
-        {activeTab === 'hooks' && (
+        {activeTab === 'hook_caption' && (
           <div className="space-y-4">
             {!selectedAngle && (
               <div className="rounded-sm border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-400">
@@ -339,91 +388,47 @@ export function IdeaDetailPanel() {
               </div>
             )}
 
-            <div className="flex gap-2">
-              <button
-                onClick={() => handleGenerateHooks(5)}
-                disabled={isGenerating === 'hooks' || !selectedAngle}
-                className="flex-1 rounded-sm border border-[var(--color-accent)] bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-[var(--color-base)] transition-all hover:bg-[var(--color-accent)]/90 disabled:opacity-50"
-              >
-                {isGenerating === 'hooks' ? 'Generating...' : 'Generate 5 Hooks'}
-              </button>
-              <button
-                onClick={() => handleGenerateHooks(15)}
-                disabled={isGenerating === 'hooks' || !selectedAngle}
-                className="rounded-sm border border-[var(--color-accent)] px-4 py-2 text-sm font-medium text-[var(--color-accent)] transition-all hover:bg-[var(--color-accent)]/10 disabled:opacity-50"
-              >
-                15
-              </button>
-            </div>
-
-            {idea.hooks.length > 0 && (
-              <div className="space-y-2">
-                {idea.hooks.map((hook, idx) => (
-                  <div
-                    key={idx}
-                    className="rounded-sm border p-3 transition-all"
-                    style={{
-                      borderColor: idea.selectedHookIndex === idx ? 'var(--color-accent)' : 'var(--color-border)',
-                      backgroundColor: idea.selectedHookIndex === idx ? 'rgba(6, 182, 212, 0.05)' : 'var(--color-surface)',
-                    }}
-                  >
-                    <div className="mb-2 flex items-start justify-between gap-2">
-                      <textarea
-                        value={hook.text}
-                        onChange={(e) => {
-                          const newHooks = [...idea.hooks];
-                          newHooks[idx] = { ...newHooks[idx], text: e.target.value };
-                          updateIdea(idea.id, { hooks: newHooks });
-                        }}
-                        rows={2}
-                        className="flex-1 resize-none bg-transparent text-sm text-gray-200 focus:outline-none"
-                      />
-                      <button
-                        onClick={() => {
-                          // Toggle off if clicking the already-selected hook
-                          if (idea.selectedHookIndex === idx) {
-                            updateIdea(idea.id, { selectedHookIndex: null });
-                          } else {
-                            updateIdea(idea.id, { selectedHookIndex: idx });
-                          }
-                        }}
-                        className="rounded-sm border px-2 py-1 text-xs transition-colors"
-                        style={{
-                          borderColor: idea.selectedHookIndex === idx ? 'var(--color-accent)' : 'var(--color-border)',
-                          color: idea.selectedHookIndex === idx ? 'var(--color-accent)' : 'var(--color-text)',
-                        }}
-                      >
-                        {idea.selectedHookIndex === idx ? '✓ Selected' : 'Select'}
-                      </button>
-                    </div>
-                    <div className="text-xs text-gray-500">{hook.style}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'caption' && (
-          <div className="space-y-4">
-            <div>
-              <label className="mb-1 block text-xs text-gray-400">Caption</label>
-              <textarea
-                value={idea.caption}
-                onChange={(e) => updateIdea(idea.id, { caption: e.target.value })}
-                rows={12}
-                className="w-full rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-gray-200"
-                placeholder="Your caption here..."
-              />
-            </div>
-
             <button
-              onClick={handleGenerateCaption}
-              disabled={isGenerating === 'caption' || idea.selectedHookIndex === null}
+              onClick={handleGenerateHookCaption}
+              disabled={isGenerating === 'hook_caption' || !selectedAngle}
               className="w-full rounded-sm border border-[var(--color-accent)] bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-[var(--color-base)] transition-all hover:bg-[var(--color-accent)]/90 disabled:opacity-50"
             >
-              {isGenerating === 'caption' ? 'Generating...' : 'Generate Caption'}
+              {isGenerating === 'hook_caption'
+                ? 'Generating...'
+                : idea.hookCaption.text
+                ? 'Regenerate Hook & Caption'
+                : 'Generate Hook & Caption'}
             </button>
+
+            {idea.hookCaption.text && (
+              <div>
+                <label className="mb-1 block text-xs text-gray-400">Current Hook & Caption</label>
+                <textarea
+                  value={idea.hookCaption.text}
+                  onChange={(e) => updateIdea(idea.id, { hookCaption: { ...idea.hookCaption, text: e.target.value } })}
+                  rows={12}
+                  className="w-full rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-gray-200"
+                />
+              </div>
+            )}
+
+            {idea.hookCaption.history.length > 0 && (
+              <div>
+                <label className="mb-1 block text-xs text-gray-400">History (click to restore)</label>
+                <div className="space-y-1 max-h-40 overflow-y-auto">
+                  {idea.hookCaption.history.map((text, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => handleRestoreHistory(idx)}
+                      className="w-full rounded-sm border border-[var(--color-border)] bg-[var(--color-base)] p-2 text-left text-xs text-gray-400 hover:border-[var(--color-accent)] hover:text-gray-200"
+                    >
+                      <div className="mb-1 text-gray-500">Version {idx + 1}</div>
+                      <div className="line-clamp-2">{text}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -464,7 +469,7 @@ export function IdeaDetailPanel() {
 
             <button
               onClick={handleGenerateRepurposed}
-              disabled={isGenerating === 'repurpose' || !idea.caption}
+              disabled={isGenerating === 'repurpose' || !idea.hookCaption.text}
               className="w-full rounded-sm border border-[var(--color-accent)] bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-[var(--color-base)] transition-all hover:bg-[var(--color-accent)]/90 disabled:opacity-50"
             >
               {isGenerating === 'repurpose' ? 'Generating...' : 'Generate All Repurposed Content'}
@@ -492,6 +497,37 @@ export function IdeaDetailPanel() {
                 </label>
               ))}
             </div>
+
+            {/* Hook+Caption feedback */}
+            {idea.hookCaption.text && (
+              <div className="rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+                <div className="mb-2 text-xs text-gray-400">How's this hook+caption?</div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleFeedback('up')}
+                    className="flex-1 rounded-sm border px-3 py-2 text-sm transition-colors"
+                    style={{
+                      borderColor: idea.hookCaption.feedback === 'up' ? '#10b981' : 'var(--color-border)',
+                      backgroundColor: idea.hookCaption.feedback === 'up' ? 'rgba(16, 185, 129, 0.1)' : 'transparent',
+                      color: idea.hookCaption.feedback === 'up' ? '#10b981' : 'var(--color-text)',
+                    }}
+                  >
+                    👍 Good
+                  </button>
+                  <button
+                    onClick={() => handleFeedback('down')}
+                    className="flex-1 rounded-sm border px-3 py-2 text-sm transition-colors"
+                    style={{
+                      borderColor: idea.hookCaption.feedback === 'down' ? '#ef4444' : 'var(--color-border)',
+                      backgroundColor: idea.hookCaption.feedback === 'down' ? 'rgba(239, 68, 68, 0.1)' : 'transparent',
+                      color: idea.hookCaption.feedback === 'down' ? '#ef4444' : 'var(--color-text)',
+                    }}
+                  >
+                    👎 Not quite
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="mb-1 block text-xs text-gray-400">Notes</label>

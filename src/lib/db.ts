@@ -60,9 +60,11 @@ export function createEmptyIdea(): Idea {
     stage: 'draft',
     angleCandidates: [],
     selectedAngleIndex: null,
-    hooks: [],
-    selectedHookIndex: null,
-    caption: '',
+    hookCaption: {
+      text: '',
+      history: [],
+      feedback: null,
+    },
     repurposed: {
       videoScript: '',
       carouselOutline: '',

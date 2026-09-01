@@ -3,12 +3,14 @@ import { PlanGrid } from './components/plan/PlanGrid';
 import { IdeaPool } from './components/pool/IdeaPool';
 import { BalanceMeter } from './components/balance/BalanceMeter';
 import { IdeaDetailPanel } from './components/idea/IdeaDetailPanel';
+import { StyleProfilePanel } from './components/settings/StyleProfilePanel';
 import { useBoardStore } from './store/boardStore';
 
 type ViewMode = 'pool' | 'plan';
 
 function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('pool');
+  const [showStyleProfile, setShowStyleProfile] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -50,6 +52,14 @@ function App() {
             </div>
 
             <div className="flex items-center gap-4">
+              {/* Style Profile button */}
+              <button
+                onClick={() => setShowStyleProfile(true)}
+                className="rounded-sm border border-[var(--color-border)] px-3 py-1.5 text-sm text-gray-400 transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+              >
+                Style Profile
+              </button>
+
               {/* Month navigator */}
               <div className="flex items-center gap-2">
                 <button
@@ -143,6 +153,12 @@ function App() {
 
       {/* Idea Detail Panel */}
       <IdeaDetailPanel />
+
+      {/* Style Profile Panel */}
+      <StyleProfilePanel
+        isOpen={showStyleProfile}
+        onClose={() => setShowStyleProfile(false)}
+      />
     </div>
   );
 }

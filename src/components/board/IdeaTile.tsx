@@ -19,7 +19,7 @@ export function IdeaTile({ idea, context }: IdeaTileProps) {
   const hasContent = idea.seedIdea.length > 0;
   
   const stageIndex = STAGE_ORDER.indexOf(idea.stage);
-  const progressSegments = 5;
+  const progressSegments = 4; // draft, angled, hook_captioned, repurposed, reviewed
   const filledSegments = Math.max(0, stageIndex);
 
   const handleTileClick = (e: React.MouseEvent) => {

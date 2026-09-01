@@ -180,7 +180,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     newIdea.jobSource = parentIdea.jobSource;
     newIdea.parentIdeaId = parentIdeaId;
     // Pre-select the spun-off angle
-    newIdea.angleCandidates = [{ text: angleText, angleType: angleType as any }];
+    newIdea.angleCandidates = [{ text: angleText, angleType: angleType as any, kept: true, spawnedIdeaId: null }];
     newIdea.selectedAngleIndex = 0;
     newIdea.stage = 'angled';
 

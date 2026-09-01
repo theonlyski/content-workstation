@@ -32,8 +32,11 @@ export interface AnglesAndClassification {
  */
 export async function generateAnglesAndClassify(
   seedIdea: string,
-  count: number = 6
+  count: number = 6,
+  styleProfile?: string
 ): Promise<AnglesAndClassification> {
+  const styleContext = styleProfile ? `\n\n${styleProfile}` : '';
+
   const completion = await client.chat.completions.create({
     model: MODEL,
     messages: [
@@ -66,7 +69,7 @@ Angle types:
 - step_by_step: actionable process
 - beginner_vs_advanced: how approach differs by level
 
-Each angle must be specific, concrete, and strong enough to hook attention in 3 seconds.`,
+Each angle must be specific, concrete, and strong enough to hook attention in 3 seconds.${styleContext}`,
       },
       {
         role: 'user',
@@ -117,98 +120,40 @@ Generate ${count} angle candidates and classify this idea. Respond in this exact
   }
 }
 
-export async function generateHooks(
+export async function generateHookCaption(
   seedIdea: string,
   angle: string,
-  count: number = 5
-): Promise<{ text: string; style: string }[]> {
-  const styles = [
-    'curiosity-gap',
-    'emotional-tension',
-    'specific-outcome',
-    'audience-frustration',
-    'contrarian',
-    'personal-story',
-    'surprising-stat',
-    'question',
-    'bold-claim',
-    'relatable-struggle',
-  ];
-
-  const completion = await client.chat.completions.create({
-    model: MODEL,
-    messages: [
-      {
-        role: 'system',
-        content: `You are a hook specialist for short-form video. Generate attention-grabbing hooks that make people stop scrolling.
-
-Each hook should:
-- Be under 10 words
-- Create immediate curiosity or tension
-- Make the viewer need to watch
-- Be specific, not generic`,
-      },
-      {
-        role: 'user',
-        content: `Create ${count} hooks for this content:
-Idea: "${seedIdea}"
-Angle: "${angle}"
-
-Respond in this exact JSON format:
-[
-  { "text": "hook text", "style": "style_name" },
-  ...
-]
-
-Use these styles: ${styles.join(', ')}`,
-      },
-    ],
-    temperature: 0.9,
-    max_tokens: 800,
-  });
-
-  const response = completion.choices[0]?.message?.content?.trim() || '[]';
-
-  try {
-    const parsed = JSON.parse(response);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-export async function generateCaption(
-  seedIdea: string,
-  angle: string,
-  hook: string
+  styleProfile?: string
 ): Promise<string> {
+  const styleContext = styleProfile ? `\n\nStyle profile:\n${styleProfile}` : '';
+
   const completion = await client.chat.completions.create({
     model: MODEL,
     messages: [
       {
         role: 'system',
-        content: `You are a caption writer for Instagram/TikTok. Write captions that make people hit SAVE, not just like.
+        content: `You are a hook+caption writer for Instagram Reels and TikTok. You produce a single piece where the hook is the opening line of the caption — not a separate artifact.
 
-The caption should:
-- Start with the hook (first line is critical)
-- Deliver real value (teach something, shift perspective)
-- Be structured for readability (line breaks, emojis sparingly)
-- End with a clear CTA that drives engagement
-- Be 150-250 words
-- Feel authentic, not salesy`,
+The output should:
+- Open with a hook line that stops the scroll (under 10 words, curiosity/tension/frustration)
+- Immediately deliver on the hook's promise
+- Teach something, shift perspective, or create emotional resonance
+- Be structured for readability (line breaks, minimal emojis)
+- End with a clear CTA that drives saves/comments
+- Be 150-250 words total
+- Feel authentic, not salesy${styleContext}`,
       },
       {
         role: 'user',
-        content: `Write a caption for:
-Hook: "${hook}"
+        content: `Write a hook+caption for:
 Idea: "${seedIdea}"
 Angle: "${angle}"
 
-Return ONLY the caption text.`,
+Return ONLY the hook+caption text (hook is the first line).`,
       },
     ],
-    temperature: 0.75,
-    max_tokens: 600,
+    temperature: 0.8,
+    max_tokens: 800,
   });
 
   return completion.choices[0]?.message?.content?.trim() || '';
@@ -217,8 +162,7 @@ Return ONLY the caption text.`,
 export async function generateRepurposed(
   seedIdea: string,
   angle: string,
-  hook: string,
-  caption: string
+  hookCaption: string
 ): Promise<{ videoScript: string; carouselOutline: string; altCaption: string }> {
   const completion = await client.chat.completions.create({
     model: MODEL,
@@ -245,10 +189,9 @@ Alt Caption:
       {
         role: 'user',
         content: `Repurpose this content:
-Hook: "${hook}"
 Idea: "${seedIdea}"
 Angle: "${angle}"
-Original caption: "${caption}"
+Hook+Caption: "${hookCaption}"
 
 Respond in this exact JSON format:
 {

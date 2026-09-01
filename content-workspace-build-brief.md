@@ -46,7 +46,7 @@ Target monthly balance to display and warn against drift from: ~40% authority, ~
 type AngleCandidate = {
   text: string;
   angleType: 'mistake' | 'myth' | 'lesson' | 'hot_take' | 'before_after' | 'step_by_step' | 'beginner_vs_advanced';
-  kept: boolean;              // user has marked this one to develop further — see section 4/5
+  kept: boolean;              // user has marked this one to develop further — see section 4C
   spawnedIdeaId: string | null; // set once "kept" has materialized this candidate into its own pool Idea
 };
 
@@ -58,12 +58,14 @@ type Idea = {
   pillarSource: 'ai' | 'manual';   // did the AI infer this, or did the user correct it?
   job: 'growth' | 'authority' | 'engagement' | 'soft_sales' | null; // same pattern as pillar
   jobSource: 'ai' | 'manual';
-  stage: 'draft' | 'angled' | 'hooked' | 'captioned' | 'repurposed' | 'reviewed';
+  stage: 'draft' | 'angled' | 'hook_captioned' | 'repurposed' | 'reviewed';
   angleCandidates: AngleCandidate[]; // a batch generated together, spanning multiple angle types automatically
   selectedAngleIndex: number | null; // which candidate is "active" for this idea's further development
-  hooks: { text: string; style: string }[]; // candidate hooks for the selected angle, one marked selected
-  selectedHookIndex: number | null;
-  caption: string;
+  hookCaption: {
+    text: string;               // single hook+caption piece, hook is the opening line
+    history: string[];          // every prior version, oldest first — regenerate never deletes
+    feedback: 'up' | 'down' | null; // optional one-tap signal, see Feedback & Style Learning section
+  };
   repurposed: {
     videoScript: string;    // hook + beats + CTA + on-screen text cues, for Reel/TikTok
     carouselOutline: string; // slide-by-slide
@@ -100,7 +102,7 @@ This is where ideas are born and developed — no day assignment, and no pillar/
 - Filter/sort by pillar, job, or stage — this is the primary way to navigate when the pool gets large. Include an "unclassified" filter for freshly-captured ideas awaiting their first angle pass.
 - **Balance meter** (live bar chart of the pool's pillar/job mix vs target) — only counts classified ideas.
 - Click any card → opens the Idea Detail Panel (same panel used from the Plan view — see below).
-- **Multi-select on cards** (checkboxes, same pattern as the Angle tab): select several ideas at once and run **"Generate Hooks & Captions"** as a bulk action — each selected idea gets its default hook batch and a matching caption for its working angle in one pass, without opening each one individually. This is separate from opening a single idea to request more hook variations (the "generate 15" option) — bulk action gives you a fast first pass across many ideas; opening one idea lets you go deep on that one.
+- **Multi-select on cards** (checkboxes, same pattern as the Angle tab): select several ideas at once and run **"Generate Hook & Caption"** as a bulk action — each selected idea gets its hook+caption written for its working angle in one pass, without opening each one individually. Opening a single idea still lets you regenerate that one specifically as many times as you want.
 - A "Send to Plan" action on each card (available at any stage once it has at least a selected angle, not gated to "reviewed") opens a day-picker and assigns that idea into the 30-Day Plan, setting `day`. This is the only place `day` gets set from null to a number.
 
 ### B. 30-Day Plan (calendar/scheduling view)
@@ -119,10 +121,9 @@ Tabs, all independently editable/regeneratable, freely switchable in any order:
    - **"Keep Selected"**: for each checked candidate, mark `kept: true`. The *first* kept candidate becomes this idea's own working angle (`selectedAngleIndex`); every *additional* kept candidate spins off into its own brand-new pool `Idea` (`parentIdeaId` set to this idea, `spawnedIdeaId` recorded back on the source candidate) — so "I liked 4 of these 8 angles" cleanly produces 4 developable ideas, not one.
    - Un-kept candidates are not deleted either — just left unchecked, sitting there for a later revisit.
 
-2. **Hooks** — generates a set of hook candidates (default 5, "generate 15" option) for the idea's working angle, using curiosity/emotional-tension/specific-outcome/audience-frustration patterns. User selects one as primary; others stay saved for reuse, never deleted.
-3. **Caption** — generates a caption matched to the selected hook, written to make someone hit save (not just like). Editable inline.
-4. **Repurpose** — one click generates all three: video script (hook + beats + on-screen text cues + CTA, sized for Reel/TikTok), carousel outline (slide-by-slide), and an alt caption variant if platform tone should shift.
-5. **Review** — 4-item checklist (hook strength / CTA clear / save-worthy / stands alone as a single post) + free-text notes. Checking all 4 auto-advances `stage` to `reviewed`.
+2. **Hook & Caption** (merged — a hook is just the opening line of the caption, not a separate artifact) — one action generates a single hook+caption piece for the idea's working angle, using curiosity, emotional tension, specific outcomes, and audience frustration as levers, written to make someone hit save. **Regenerate** replaces the active version but keeps the prior one in `history` — never a batch of options to sift through, just "try again" with the old version always one click away to restore.
+3. **Repurpose** — one click generates all three: video script (hook + beats + on-screen text cues + CTA, sized for Reel/TikTok), carousel outline (slide-by-slide), and an alt caption variant if platform tone should shift.
+4. **Review** — 4-item checklist (hook strength / CTA clear / save-worthy / stands alone as a single post) + free-text notes. Checking all 4 auto-advances `stage` to `reviewed`. Also where the optional 👍/👎 on the current hook+caption lives — see Feedback & Style Learning below.
 
 ### D. Idea Bank — folded into the Pool
 The filterable/searchable idea list described in section A *is* the Idea Bank — no separate screen needed. The Pool already serves flat search-and-jump; the Plan serves calendar placement. Two views, not three.
@@ -133,12 +134,30 @@ The filterable/searchable idea list described in section A *is* the Idea Bank �
 Each of these is a distinct, independently triggerable generation action (not steps in a forced sequence):
 - **Angle generation (also handles classification)**: given only `seedIdea` (a raw captured thought, nothing else), produce a batch of ~6-8 angle candidates spanning different angle types, and in the same call infer the idea's `pillar` and `job` from the content — the user supplies no pillar/job/type input at any point in this flow. Each angle must be strong enough to stand alone as a full post concept.
 - **30 angles from one idea**: same as above but scaled up — given a single seed idea, produce 30 genuinely different angles distributed across the 7 angle types, used to seed an entire month's worth of spin-off ideas from one core thought if desired.
-- **Hook + caption generation**: given an idea's selected angle, produce hooks (default 5, expandable to 15) using curiosity, emotional tension, specific outcomes, and audience frustration as levers, each paired with a caption written to drive saves.
+- **Hook + caption generation**: given an idea's selected angle (and, once available, the style profile — see Feedback & Style Learning), produce a single hook+caption piece in one pass — hook as the opening line, not a separate artifact. Regeneration replaces the active version and appends the old one to `history`.
 - **Repurposing**: given a finished idea (angle + hook + caption), produce the video script, carousel outline, and alt caption in one action.
 
 All generation outputs land as editable text — never locked, never destructive to other tabs' content when regenerated. AI-inferred `pillar`/`job` are always user-correctable; a manual correction sets `pillarSource`/`jobSource` to `'manual'` and the AI should not silently overwrite a manual correction on subsequent regenerations of the same idea.
 
-## 6. Design direction — dark, Tron/cyberpunk, restrained
+## 6. Feedback & Style Learning
+This is not model retraining — no training pipeline exists or is planned. It is a **growing style profile** injected as context into every generation call, so output gets closer to this user's actual voice over time without any weights changing.
+
+**What feeds the profile:**
+- *Implicit signals, generated automatically by normal use, no extra effort required*: which angle types get kept most often (from `AngleCandidate.kept`); how much a hook+caption gets edited before use vs. used near-verbatim (compare final saved text to the originally generated version); which pillars/jobs get the most fully-developed (reviewed) ideas vs. abandoned drafts.
+- *Explicit signal, optional, one tap, never a blocking survey*: a 👍/👎 on the current hook+caption, stored as `Idea.hookCaption.feedback`. No comment box, no rating scale — just a binary tap.
+- *Optional third tier, manual, only if the user chooses to use it*: after actually posting, come back and log real performance (views/saves/comments) against the idea. Build this as a nice-to-have field, not a dependency — the profile must work fine from implicit + 👍/👎 signals alone if this is never touched.
+
+**How it's used**: the style profile is a real, human-readable document (not a black box) — a short structured summary (preferred tone words, sentence rhythm notes, angle types that land, angle types that don't) plus a handful of the user's own best-performing (👍'd or lightly-edited) hook+captions, kept as concrete examples. This gets included as context on every Angle and Hook & Caption generation call. The user can open and read the profile directly (a simple settings/profile screen), and edit or clear it manually — it should never feel like an opaque force shaping output invisibly.
+
+**Update cadence**: recompute the profile incrementally as feedback accrues (e.g. after every N pieces of feedback, or on-demand via a "refresh my style profile" button) rather than on every single keystroke — this is Sunday-session tooling, not a real-time ML system.
+
+## 7. Testing with another user
+Phase 1 has no backend, but a second person can still try it without waiting for Phase 2:
+- Deploy the current Phase 1 build as a static site (free tier on Vercel/Netlify is enough) and hand them the URL.
+- Because storage is browser-local (per the Phase 1 storage design), their data lives entirely in *their own browser* — nothing touches this user's data, and no backend is required for this to work safely.
+- Before handing it off, be clear with the tester on what kind of feedback is wanted: **workflow/UX** feedback (is the tool easy to use) doesn't require any niche knowledge, but **content-quality** feedback (does the AI nail tone for this niche) is only useful from someone who actually knows this content space — mixing the two without saying which is wanted tends to produce feedback about the wrong thing.
+
+## 8. Design direction — dark, Tron/cyberpunk, restrained
 - **Base**: near-black `#0A0B0D`, with a faint low-opacity grid-line texture in the background (HUD feel, not decoration).
 - **Signature accent**: electric cyan `#06b6d4` (already the Body Intelligence pillar color) used for primary interactive glow — focus states, active tab, generator button. Keep glow effects to active/hover states only, not ambient.
 - **Pillar colors are the coding system**: indigo `#6366f1`, cyan `#06b6d4`, green `#10b981`, amber `#f59e0b` — used consistently as ring colors, badges, and chart segments. No extra decorative color.
@@ -146,13 +165,14 @@ All generation outputs land as editable text — never locked, never destructive
 - **Shape language**: sharp corners on structural elements (cards, panels), no soft SaaS-card shadows; use thin glowing borders instead of drop shadows to indicate active/selected state.
 - Motion: one deliberate reveal when the detail panel slides open; hover states are subtle border-glow, not scale/shadow bounce. Respect reduced-motion.
 
-## 7. Non-negotiables
+## 9. Non-negotiables
 - No forced linear wizard anywhere — every idea, every tab, every phase (pool vs. plan) is jump-to-able at all times.
 - **Capture is zero-friction and classification-free**: creating an idea requires only typing raw text and submitting — never a pillar, job, or angle-type selection. Pillar and job are always AI-inferred first, manually correctable second.
 - The Idea Pool is where ideas live and get developed by default — scheduling into the 30-Day Plan is an explicit, reversible action a user takes when ready, never an assumption baked into idea creation.
 - Pool/Plan and the Idea Detail Panel are both usable together (panel doesn't fully hide the list/grid behind it) so context is never lost.
-- **Nothing generated is ever deleted automatically**: angle candidates, hook candidates, and past generations stay retrievable even after something else is selected/kept — regeneration adds, it never silently replaces history.
+- **Nothing generated is ever deleted automatically**: angle candidates, hook+caption history, and past generations stay retrievable even after something else is selected/kept — regeneration adds, it never silently replaces history.
 - All AI-generated content is editable and regeneration never destroys sibling tabs' content.
+- **The style profile is transparent and optional**: readable, editable, and clearable by the user at any time; the app must work correctly (just without personalization) if the user never gives any feedback at all.
 - Works fully for one person with no collaborators, no external design/editing tools.
 - Data persists across sessions locally in Phase 1; cross-device access is a planned Phase 2 upgrade (see storage section) — don't build the backend now, but don't hardcode assumptions that block it later.
 - Fully usable on a phone-width browser window from Phase 1 onward (even before Phase 2 makes it reachable from an actual phone) — Pool list, Plan grid, generator bar, and detail panel all need real responsive treatment, not just a shrunk desktop layout.

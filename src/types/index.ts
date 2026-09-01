@@ -2,7 +2,7 @@ export type Pillar = 'internal_power' | 'body_intelligence' | 'natural_energy' |
 
 export type Job = 'growth' | 'authority' | 'engagement' | 'soft_sales';
 
-export type Stage = 'draft' | 'angled' | 'hooked' | 'captioned' | 'repurposed' | 'reviewed';
+export type Stage = 'draft' | 'angled' | 'hook_captioned' | 'repurposed' | 'reviewed';
 
 export type AngleType =
   | 'mistake'
@@ -16,11 +16,14 @@ export type AngleType =
 export interface AngleCandidate {
   text: string;
   angleType: AngleType;
+  kept: boolean;              // user has marked this one to develop further
+  spawnedIdeaId: string | null; // set once "kept" has materialized this candidate into its own pool Idea
 }
 
-export interface Hook {
-  text: string;
-  style: string;
+export interface HookCaption {
+  text: string;               // single hook+caption piece, hook is the opening line
+  history: string[];          // every prior version, oldest first — regenerate never deletes
+  feedback: 'up' | 'down' | null; // optional one-tap signal
 }
 
 export interface Repurposed {
@@ -39,7 +42,7 @@ export interface Review {
 export interface Idea {
   id: string;
   day: number | null;       // null = in Idea Pool, 1-30 = scheduled in 30-Day Plan
-  seedIdea: string;         // the raw, fast-captured thought — the only thing required to create an Idea
+  seedIdea: string;         // the raw, fast-captured thought
   pillar: Pillar | null;    // null until AI classifies it; manually overridable any time
   pillarSource: 'ai' | 'manual';
   job: Job | null;          // null until AI classifies it; manually overridable any time
@@ -47,9 +50,7 @@ export interface Idea {
   stage: Stage;
   angleCandidates: AngleCandidate[];  // batch generated together, spanning multiple angle types
   selectedAngleIndex: number | null;  // which candidate is "active" for further development
-  hooks: Hook[];
-  selectedHookIndex: number | null;
-  caption: string;
+  hookCaption: HookCaption;
   repurposed: Repurposed;
   review: Review;
   notes: string;
@@ -79,7 +80,7 @@ export const JOB_CONFIG: Record<Job, { label: string; description: string }> = {
   soft_sales: { label: 'Soft Sales', description: 'Invite toward offer without hard pitching' },
 };
 
-export const STAGE_ORDER: Stage[] = ['draft', 'angled', 'hooked', 'captioned', 'repurposed', 'reviewed'];
+export const STAGE_ORDER: Stage[] = ['draft', 'angled', 'hook_captioned', 'repurposed', 'reviewed'];
 
 export const ANGLE_TYPES: { value: AngleType; label: string }[] = [
   { value: 'mistake', label: 'Mistake' },
