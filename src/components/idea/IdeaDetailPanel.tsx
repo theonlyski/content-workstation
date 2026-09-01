@@ -4,7 +4,7 @@ import { PILLAR_CONFIG, JOB_CONFIG, ANGLE_TYPES, type Idea, type Pillar, type Jo
 import { useBoardStore } from '../../store/boardStore';
 import { generateAnglesAndClassify, generateHooks, generateCaption, generateRepurposed } from '../../lib/ai';
 
-type TabId = 'angle' | 'hooks' | 'caption' | 'repurpose' | 'review';
+type TabId = 'angle' | 'hook_caption' | 'repurpose' | 'review';
 
 interface Tab {
   id: TabId;
@@ -13,8 +13,7 @@ interface Tab {
 
 const TABS: Tab[] = [
   { id: 'angle', label: 'Angle' },
-  { id: 'hooks', label: 'Hooks' },
-  { id: 'caption', label: 'Caption' },
+  { id: 'hook_caption', label: 'Hook & Caption' },
   { id: 'repurpose', label: 'Repurpose' },
   { id: 'review', label: 'Review' },
 ];
@@ -112,35 +111,24 @@ export function IdeaDetailPanel() {
     });
   };
 
-  const handleGenerateHooks = async (count: number = 5) => {
+  const handleGenerateHookCaption = async () => {
     if (!selectedAngle) return;
-    setIsGenerating('hooks');
+    setIsGenerating('hook_caption');
     try {
-      const hooks = await generateHooks(idea.seedIdea, selectedAngle.text, count);
-      await updateIdea(idea.id, {
-        hooks,
-        stage: 'hooked',
-      });
+      // Generate a single hook+caption piece
+      const hooks = await generateHooks(idea.seedIdea, selectedAngle.text, 1);
+      if (hooks.length > 0) {
+        const hook = hooks[0];
+        const caption = await generateCaption(idea.seedIdea, selectedAngle.text, hook.text);
+        await updateIdea(idea.id, {
+          hooks: [hook],
+          selectedHookIndex: 0,
+          caption,
+          stage: 'captioned',
+        });
+      }
     } catch (error) {
-      console.error('Failed to generate hooks:', error);
-    } finally {
-      setIsGenerating(null);
-    }
-  };
-
-  const handleGenerateCaption = async () => {
-    if (idea.selectedHookIndex === null || !idea.hooks[idea.selectedHookIndex] || !selectedAngle) return;
-
-    setIsGenerating('caption');
-    try {
-      const selectedHook = idea.hooks[idea.selectedHookIndex];
-      const caption = await generateCaption(idea.seedIdea, selectedAngle.text, selectedHook.text);
-      await updateIdea(idea.id, {
-        caption,
-        stage: 'captioned',
-      });
-    } catch (error) {
-      console.error('Failed to generate caption:', error);
+      console.error('Failed to generate hook+caption:', error);
     } finally {
       setIsGenerating(null);
     }
@@ -331,7 +319,7 @@ export function IdeaDetailPanel() {
           </div>
         )}
 
-        {activeTab === 'hooks' && (
+        {activeTab === 'hook_caption' && (
           <div className="space-y-4">
             {!selectedAngle && (
               <div className="rounded-sm border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-400">
@@ -339,73 +327,37 @@ export function IdeaDetailPanel() {
               </div>
             )}
 
-            <div className="flex gap-2">
-              <button
-                onClick={() => handleGenerateHooks(5)}
-                disabled={isGenerating === 'hooks' || !selectedAngle}
-                className="flex-1 rounded-sm border border-[var(--color-accent)] bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-[var(--color-base)] transition-all hover:bg-[var(--color-accent)]/90 disabled:opacity-50"
-              >
-                {isGenerating === 'hooks' ? 'Generating...' : 'Generate 5 Hooks'}
-              </button>
-              <button
-                onClick={() => handleGenerateHooks(15)}
-                disabled={isGenerating === 'hooks' || !selectedAngle}
-                className="rounded-sm border border-[var(--color-accent)] px-4 py-2 text-sm font-medium text-[var(--color-accent)] transition-all hover:bg-[var(--color-accent)]/10 disabled:opacity-50"
-              >
-                15
-              </button>
-            </div>
+            <button
+              onClick={handleGenerateHookCaption}
+              disabled={isGenerating === 'hook_caption' || !selectedAngle}
+              className="w-full rounded-sm border border-[var(--color-accent)] bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-[var(--color-base)] transition-all hover:bg-[var(--color-accent)]/90 disabled:opacity-50"
+            >
+              {isGenerating === 'hook_caption'
+                ? 'Generating...'
+                : idea.caption
+                ? 'Regenerate Hook & Caption'
+                : 'Generate Hook & Caption'}
+            </button>
 
+            {/* Hook display */}
             {idea.hooks.length > 0 && (
-              <div className="space-y-2">
-                {idea.hooks.map((hook, idx) => (
-                  <div
-                    key={idx}
-                    className="rounded-sm border p-3 transition-all"
-                    style={{
-                      borderColor: idea.selectedHookIndex === idx ? 'var(--color-accent)' : 'var(--color-border)',
-                      backgroundColor: idea.selectedHookIndex === idx ? 'rgba(6, 182, 212, 0.05)' : 'var(--color-surface)',
-                    }}
-                  >
-                    <div className="mb-2 flex items-start justify-between gap-2">
-                      <textarea
-                        value={hook.text}
-                        onChange={(e) => {
-                          const newHooks = [...idea.hooks];
-                          newHooks[idx] = { ...newHooks[idx], text: e.target.value };
-                          updateIdea(idea.id, { hooks: newHooks });
-                        }}
-                        rows={2}
-                        className="flex-1 resize-none bg-transparent text-sm text-gray-200 focus:outline-none"
-                      />
-                      <button
-                        onClick={() => {
-                          // Toggle off if clicking the already-selected hook
-                          if (idea.selectedHookIndex === idx) {
-                            updateIdea(idea.id, { selectedHookIndex: null });
-                          } else {
-                            updateIdea(idea.id, { selectedHookIndex: idx });
-                          }
-                        }}
-                        className="rounded-sm border px-2 py-1 text-xs transition-colors"
-                        style={{
-                          borderColor: idea.selectedHookIndex === idx ? 'var(--color-accent)' : 'var(--color-border)',
-                          color: idea.selectedHookIndex === idx ? 'var(--color-accent)' : 'var(--color-text)',
-                        }}
-                      >
-                        {idea.selectedHookIndex === idx ? '✓ Selected' : 'Select'}
-                      </button>
-                    </div>
-                    <div className="text-xs text-gray-500">{hook.style}</div>
-                  </div>
-                ))}
+              <div>
+                <label className="mb-1 block text-xs text-gray-400">Hook</label>
+                <textarea
+                  value={idea.hooks[0]?.text || ''}
+                  onChange={(e) => {
+                    const newHooks = [...idea.hooks];
+                    newHooks[0] = { ...newHooks[0], text: e.target.value };
+                    updateIdea(idea.id, { hooks: newHooks });
+                  }}
+                  rows={2}
+                  className="w-full rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-gray-200"
+                  placeholder="Hook line..."
+                />
               </div>
             )}
-          </div>
-        )}
 
-        {activeTab === 'caption' && (
-          <div className="space-y-4">
+            {/* Caption display */}
             <div>
               <label className="mb-1 block text-xs text-gray-400">Caption</label>
               <textarea
@@ -416,14 +368,6 @@ export function IdeaDetailPanel() {
                 placeholder="Your caption here..."
               />
             </div>
-
-            <button
-              onClick={handleGenerateCaption}
-              disabled={isGenerating === 'caption' || idea.selectedHookIndex === null}
-              className="w-full rounded-sm border border-[var(--color-accent)] bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-[var(--color-base)] transition-all hover:bg-[var(--color-accent)]/90 disabled:opacity-50"
-            >
-              {isGenerating === 'caption' ? 'Generating...' : 'Generate Caption'}
-            </button>
           </div>
         )}
 
