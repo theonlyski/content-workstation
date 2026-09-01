@@ -63,7 +63,6 @@ export function createEmptyIdea(): Idea {
     hookCaption: {
       text: '',
       history: [],
-      feedback: null,
     },
     repurposed: {
       videoScript: '',

@@ -7,10 +7,11 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     proxy: {
-      '/api/ai': {
-        target: 'https://token-plan.ap-southeast-1.maas.aliyuncs.com',
+      // Proxy /api/generate to the serverless function during local dev
+      // In production, Vercel handles this automatically
+      '/api/generate': {
+        target: 'http://localhost:3000',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/ai/, '/compatible-mode/v1'),
       },
     },
   },

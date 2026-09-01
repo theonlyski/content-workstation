@@ -2,9 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { PILLAR_CONFIG, JOB_CONFIG, ANGLE_TYPES, type Idea, type Pillar, type Job, type AngleCandidate } from '../../types';
 import { useBoardStore } from '../../store/boardStore';
-import { useStyleProfileStore } from '../../store/styleProfileStore';
 import { generateAnglesAndClassify, generateHookCaption, generateRepurposed } from '../../lib/ai';
-import { styleProfileToPromptText } from '../../lib/styleProfile';
 
 type TabId = 'angle' | 'hook_caption' | 'repurpose' | 'review';
 
@@ -31,8 +29,6 @@ export function IdeaDetailPanel() {
   const updateIdea = useBoardStore(state => state.updateIdea);
   const selectIdea = useBoardStore(state => state.selectIdea);
   const spinoffIdea = useBoardStore(state => state.spinoffIdea);
-  const styleProfile = useStyleProfileStore(state => state.profile);
-  const styleProfileText = styleProfile ? styleProfileToPromptText(styleProfile) : undefined;
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -50,7 +46,7 @@ export function IdeaDetailPanel() {
   // Safety: ensure new fields exist (migration for old data)
   if (!idea.angleCandidates) idea.angleCandidates = [];
   if (idea.selectedAngleIndex === undefined) idea.selectedAngleIndex = null;
-  if (!idea.hookCaption) idea.hookCaption = { text: '', history: [], feedback: null };
+  if (!idea.hookCaption) idea.hookCaption = { text: '', history: [] };
   if (!idea.repurposed) idea.repurposed = { videoScript: '', carouselOutline: '', altCaption: '' };
   if (!idea.review) idea.review = { hookStrength: false, ctaClear: false, saveWorthy: false, standsAlone: false };
   if (idea.parentIdeaId === undefined) idea.parentIdeaId = null;
@@ -72,7 +68,7 @@ export function IdeaDetailPanel() {
   const handleGenerateAngles = async () => {
     setIsGenerating('angles');
     try {
-      const result = await generateAnglesAndClassify(idea.seedIdea, 6, styleProfileText);
+      const result = await generateAnglesAndClassify(idea.seedIdea, 6);
       const newCandidates: AngleCandidate[] = result.angles.map(a => ({
         ...a,
         kept: false,
@@ -140,7 +136,7 @@ export function IdeaDetailPanel() {
     if (!selectedAngle) return;
     setIsGenerating('hook_caption');
     try {
-      const newText = await generateHookCaption(idea.seedIdea, selectedAngle.text, styleProfileText);
+      const newText = await generateHookCaption(idea.seedIdea, selectedAngle.text);
       const history = idea.hookCaption.text 
         ? [...idea.hookCaption.history, idea.hookCaption.text]
         : idea.hookCaption.history;
@@ -148,7 +144,6 @@ export function IdeaDetailPanel() {
         hookCaption: {
           text: newText,
           history,
-          feedback: null,
         },
         stage: 'hook_captioned',
       });
@@ -170,7 +165,6 @@ export function IdeaDetailPanel() {
       hookCaption: {
         text: oldText,
         history: newHistory,
-        feedback: null,
       },
     });
   };
@@ -201,15 +195,6 @@ export function IdeaDetailPanel() {
     updateIdea(idea.id, {
       review: newReview,
       stage: allChecked ? 'reviewed' : idea.stage,
-    });
-  };
-
-  const handleFeedback = (feedback: 'up' | 'down' | null) => {
-    updateIdea(idea.id, {
-      hookCaption: {
-        ...idea.hookCaption,
-        feedback: idea.hookCaption.feedback === feedback ? null : feedback,
-      },
     });
   };
 
@@ -497,37 +482,6 @@ export function IdeaDetailPanel() {
                 </label>
               ))}
             </div>
-
-            {/* Hook+Caption feedback */}
-            {idea.hookCaption.text && (
-              <div className="rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
-                <div className="mb-2 text-xs text-gray-400">How's this hook+caption?</div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => handleFeedback('up')}
-                    className="flex-1 rounded-sm border px-3 py-2 text-sm transition-colors"
-                    style={{
-                      borderColor: idea.hookCaption.feedback === 'up' ? '#10b981' : 'var(--color-border)',
-                      backgroundColor: idea.hookCaption.feedback === 'up' ? 'rgba(16, 185, 129, 0.1)' : 'transparent',
-                      color: idea.hookCaption.feedback === 'up' ? '#10b981' : 'var(--color-text)',
-                    }}
-                  >
-                    👍 Good
-                  </button>
-                  <button
-                    onClick={() => handleFeedback('down')}
-                    className="flex-1 rounded-sm border px-3 py-2 text-sm transition-colors"
-                    style={{
-                      borderColor: idea.hookCaption.feedback === 'down' ? '#ef4444' : 'var(--color-border)',
-                      backgroundColor: idea.hookCaption.feedback === 'down' ? 'rgba(239, 68, 68, 0.1)' : 'transparent',
-                      color: idea.hookCaption.feedback === 'down' ? '#ef4444' : 'var(--color-text)',
-                    }}
-                  >
-                    👎 Not quite
-                  </button>
-                </div>
-              </div>
-            )}
 
             <div>
               <label className="mb-1 block text-xs text-gray-400">Notes</label>

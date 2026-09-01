@@ -23,7 +23,6 @@ export interface AngleCandidate {
 export interface HookCaption {
   text: string;               // single hook+caption piece, hook is the opening line
   history: string[];          // every prior version, oldest first — regenerate never deletes
-  feedback: 'up' | 'down' | null; // optional one-tap signal
 }
 
 export interface Repurposed {
