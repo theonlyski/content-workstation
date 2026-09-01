@@ -51,13 +51,15 @@ export function createEmptyBoard(month: string): Board {
 export function createEmptyIdea(): Idea {
   return {
     id: `idea-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-    day: null,  // New ideas start in the pool
-    pillar: 'internal_power',
-    job: 'authority',
-    stage: 'draft',
+    day: null,
     seedIdea: '',
-    angle: '',
-    angleType: '',
+    pillar: null,
+    pillarSource: 'ai',
+    job: null,
+    jobSource: 'ai',
+    stage: 'draft',
+    angleCandidates: [],
+    selectedAngleIndex: null,
     hooks: [],
     selectedHookIndex: null,
     caption: '',
@@ -73,6 +75,7 @@ export function createEmptyIdea(): Idea {
       standsAlone: false,
     },
     notes: '',
+    parentIdeaId: null,
     updatedAt: new Date().toISOString(),
   };
 }

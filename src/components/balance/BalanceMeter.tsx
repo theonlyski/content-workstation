@@ -105,8 +105,13 @@ export function BalanceMeter({ context }: BalanceMeterProps) {
       <div className="mt-4 border-t border-[var(--color-border)] pt-3 text-center">
         <div className="font-mono text-2xl text-[var(--color-accent)]">{total}</div>
         <div className="text-xs text-gray-400">
-          {context === 'pool' ? 'ideas in pool' : 'ideas scheduled'}
+          {context === 'pool' ? 'classified ideas in pool' : 'ideas scheduled'}
         </div>
+        {context === 'pool' && 'unclassified' in stats && (stats as typeof poolStats).unclassified > 0 && (
+          <div className="mt-1 text-xs text-gray-500">
+            + {(stats as typeof poolStats).unclassified} unclassified
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { PlanGrid } from './components/plan/PlanGrid';
 import { IdeaPool } from './components/pool/IdeaPool';
-import { Generator } from './components/generator/Generator';
 import { BalanceMeter } from './components/balance/BalanceMeter';
 import { IdeaDetailPanel } from './components/idea/IdeaDetailPanel';
 import { useBoardStore } from './store/boardStore';
@@ -137,7 +136,6 @@ function App() {
 
           {/* Sidebar */}
           <aside className="space-y-4">
-            <Generator />
             <BalanceMeter context={viewMode} />
           </aside>
         </div>

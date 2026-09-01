@@ -1,100 +1,118 @@
 import OpenAI from 'openai';
-import type { Pillar, AngleType } from '../types';
+import type { Pillar, Job, AngleType, AngleCandidate } from '../types';
 
 const client = new OpenAI({
   apiKey: import.meta.env.VITE_DASHSCOPE_API_KEY || '',
-  baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  baseURL: 'http://localhost:5173/api/ai',
   dangerouslyAllowBrowser: true,
 });
 
-const MODEL = 'qwen-plus';
+const MODEL = 'qwen3.8-max';
 
-export async function generateIdea(pillar: Pillar, job: string): Promise<string> {
-  const pillarTopics: Record<Pillar, string> = {
-    internal_power: 'taichi, qigong, zhanzhuang, internal martial arts',
-    body_intelligence: 'nervous system regulation, breathwork, somatic practices',
-    natural_energy: 'natural fermentation, tempeh, living foods, food as medicine',
-    practice_life: 'daily practice, embodied philosophy, integration of practice into life',
-  };
+const ALL_ANGLE_TYPES: AngleType[] = [
+  'mistake', 'myth', 'lesson', 'hot_take', 'before_after', 'step_by_step', 'beginner_vs_advanced'
+];
 
-  const completion = await client.chat.completions.create({
-    model: MODEL,
-    messages: [
-      {
-        role: 'system',
-        content: `You are a content strategist for a creator in the internal arts and embodied living space. Generate a compelling, specific content idea for Instagram Reels/TikTok.
+const PILLAR_TOPICS: Record<Pillar, string> = {
+  internal_power: 'taichi, qigong, zhanzhuang, internal martial arts',
+  body_intelligence: 'nervous system regulation, breathwork, somatic practices',
+  natural_energy: 'natural fermentation, tempeh, living foods, food as medicine',
+  practice_life: 'daily practice, embodied philosophy, integration of practice into life',
+};
 
-The idea should be:
-- Specific enough to be a full post concept (not vague)
-- Actionable and practical
-- Written as one clear sentence
-- Under 100 characters
-
-Focus on making it stand alone as a complete content concept.`,
-      },
-      {
-        role: 'user',
-        content: `Generate a content idea for:
-- Pillar: ${pillarTopics[pillar]}
-- Job: ${job} (this is the post's goal - growth/authority/engagement/soft_sales)
-
-Return ONLY the one-line seed idea, nothing else.`,
-      },
-    ],
-    temperature: 0.8,
-    max_tokens: 150,
-  });
-
-  return completion.choices[0]?.message?.content?.trim() || 'Content idea generation failed';
+export interface AnglesAndClassification {
+  angles: AngleCandidate[];
+  pillar: Pillar;
+  job: Job;
 }
 
-export async function generateAngle(
+/**
+ * Given a raw seed idea, generates a batch of angle candidates spanning multiple
+ * angle types, and classifies the idea's pillar and job in the same call.
+ */
+export async function generateAnglesAndClassify(
   seedIdea: string,
-  pillar: Pillar
-): Promise<{ angle: string; angleType: AngleType }> {
-  const angleTypes: AngleType[] = ['mistake', 'myth', 'lesson', 'hot_take', 'before_after', 'step_by_step', 'beginner_vs_advanced'];
-  
+  count: number = 6
+): Promise<AnglesAndClassification> {
   const completion = await client.chat.completions.create({
     model: MODEL,
     messages: [
       {
         role: 'system',
-        content: `You are a content strategist. Given a seed idea, create a specific angle that makes it a compelling social media post.
+        content: `You are a content strategist for a creator in internal arts and embodied living. Given a raw content idea, you will:
 
-The angle must:
-- Be specific and concrete (not generic)
-- Stand alone as a complete post concept
-- Match one of the 7 angle types
-- Be strong enough to hook attention in 3 seconds`,
+1. Generate ${count} different angle candidates, each strong enough to stand alone as a full social media post. Spread them across different angle types for variety.
+2. Classify the idea into one of 4 pillars based on its content.
+3. Classify the idea into one of 4 jobs based on what the post should achieve.
+
+Pillars:
+- internal_power: taichi, qigong, zhanzhuang, internal martial arts
+- body_intelligence: nervous system regulation, breathwork, somatic practices
+- natural_energy: natural fermentation, tempeh, living foods, food as medicine
+- practice_life: daily practice, embodied philosophy, integration of practice into life
+
+Jobs:
+- growth: reach new people, highly shareable/save-able, low friction
+- authority: build trust/expertise, teaches something real
+- engagement: spark comments/saves/relate, emotionally resonant
+- soft_sales: invite toward offer without hard pitching
+
+Angle types:
+- mistake: common error people make
+- myth: widely believed but wrong
+- lesson: something learned the hard way
+- hot_take: contrarian opinion
+- before_after: transformation story
+- step_by_step: actionable process
+- beginner_vs_advanced: how approach differs by level
+
+Each angle must be specific, concrete, and strong enough to hook attention in 3 seconds.`,
       },
       {
         role: 'user',
-        content: `Seed idea: "${seedIdea}"
-Pillar context: ${pillar}
+        content: `Raw idea: "${seedIdea}"
 
-Generate a specific angle. Respond in this exact JSON format:
+Generate ${count} angle candidates and classify this idea. Respond in this exact JSON format:
 {
-  "angleType": "one_of_the_7_types",
-  "angle": "your specific angle here"
+  "angles": [
+    { "text": "angle text here", "angleType": "one_of_the_7_types" },
+    ...
+  ],
+  "pillar": "one_of_the_4_pillars",
+  "job": "one_of_the_4_jobs"
 }`,
       },
     ],
     temperature: 0.85,
-    max_tokens: 300,
+    max_tokens: 1500,
   });
 
   const response = completion.choices[0]?.message?.content?.trim() || '{}';
-  
+
   try {
     const parsed = JSON.parse(response);
-    return {
-      angle: parsed.angle || seedIdea,
-      angleType: angleTypes.includes(parsed.angleType) ? parsed.angleType : 'lesson',
-    };
+    const angles: AngleCandidate[] = Array.isArray(parsed.angles)
+      ? parsed.angles
+          .filter((a: { angleType: string }) => ALL_ANGLE_TYPES.includes(a.angleType as AngleType))
+          .map((a: { text: string; angleType: AngleType }) => ({
+            text: a.text || '',
+            angleType: a.angleType,
+          }))
+      : [];
+
+    const pillar: Pillar = Object.keys(PILLAR_TOPICS).includes(parsed.pillar)
+      ? parsed.pillar
+      : 'internal_power';
+
+    const validJobs: Job[] = ['growth', 'authority', 'engagement', 'soft_sales'];
+    const job: Job = validJobs.includes(parsed.job) ? parsed.job : 'authority';
+
+    return { angles, pillar, job };
   } catch {
     return {
-      angle: seedIdea,
-      angleType: 'lesson',
+      angles: [{ text: seedIdea, angleType: 'lesson' }],
+      pillar: 'internal_power',
+      job: 'authority',
     };
   }
 }
@@ -150,7 +168,7 @@ Use these styles: ${styles.join(', ')}`,
   });
 
   const response = completion.choices[0]?.message?.content?.trim() || '[]';
-  
+
   try {
     const parsed = JSON.parse(response);
     return Array.isArray(parsed) ? parsed : [];
@@ -245,7 +263,7 @@ Respond in this exact JSON format:
   });
 
   const response = completion.choices[0]?.message?.content?.trim() || '{}';
-  
+
   try {
     const parsed = JSON.parse(response);
     return {

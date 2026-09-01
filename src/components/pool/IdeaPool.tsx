@@ -2,10 +2,14 @@ import { useState } from 'react';
 import { PILLAR_CONFIG, JOB_CONFIG, STAGE_ORDER, type Pillar, type Job, type Stage } from '../../types';
 import { useBoardStore } from '../../store/boardStore';
 import { IdeaTile } from '../board/IdeaTile';
+import { QuickCapture } from './QuickCapture';
+
+type PillarFilter = Pillar | 'all' | 'unclassified';
+type JobFilter = Job | 'all' | 'unclassified';
 
 export function IdeaPool() {
-  const [filterPillar, setFilterPillar] = useState<Pillar | 'all'>('all');
-  const [filterJob, setFilterJob] = useState<Job | 'all'>('all');
+  const [filterPillar, setFilterPillar] = useState<PillarFilter>('all');
+  const [filterJob, setFilterJob] = useState<JobFilter>('all');
   const [filterStage, setFilterStage] = useState<Stage | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -15,21 +19,40 @@ export function IdeaPool() {
 
   if (!currentBoard) return null;
 
-  // Filter pool ideas (day === null)
   const poolIdeas = currentBoard.ideas
     .filter(idea => {
-      if (idea.day !== null) return false; // Only show unscheduled ideas
+      if (idea.day !== null) return false;
       if (!idea.seedIdea) return false;
-      if (filterPillar !== 'all' && idea.pillar !== filterPillar) return false;
-      if (filterJob !== 'all' && idea.job !== filterJob) return false;
+      
+      // Pillar filter
+      if (filterPillar === 'unclassified') {
+        if (idea.pillar !== null) return false;
+      } else if (filterPillar !== 'all' && idea.pillar !== filterPillar) {
+        return false;
+      }
+      
+      // Job filter
+      if (filterJob === 'unclassified') {
+        if (idea.job !== null) return false;
+      } else if (filterJob !== 'all' && idea.job !== filterJob) {
+        return false;
+      }
+      
       if (filterStage !== 'all' && idea.stage !== filterStage) return false;
       if (searchQuery && !idea.seedIdea.toLowerCase().includes(searchQuery.toLowerCase())) return false;
       return true;
     })
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 
+  const unclassifiedCount = currentBoard.ideas.filter(i => i.day === null && i.seedIdea && i.pillar === null).length;
+
   return (
     <div>
+      {/* Quick Capture bar */}
+      <div className="mb-4">
+        <QuickCapture />
+      </div>
+
       {/* Filters */}
       <div className="mb-4 rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
         <div className="mb-3 flex items-center justify-between">
@@ -72,10 +95,11 @@ export function IdeaPool() {
           <div className="grid grid-cols-3 gap-2">
             <select
               value={filterPillar}
-              onChange={(e) => setFilterPillar(e.target.value as Pillar | 'all')}
+              onChange={(e) => setFilterPillar(e.target.value as PillarFilter)}
               className="rounded-sm border border-[var(--color-border)] bg-[var(--color-base)] px-2 py-1.5 text-xs text-gray-200"
             >
               <option value="all">All Pillars</option>
+              <option value="unclassified">⚪ Unclassified ({unclassifiedCount})</option>
               {(Object.entries(PILLAR_CONFIG) as [Pillar, typeof PILLAR_CONFIG[Pillar]][]).map(([key, config]) => (
                 <option key={key} value={key}>{config.emoji} {config.label}</option>
               ))}
@@ -83,10 +107,11 @@ export function IdeaPool() {
 
             <select
               value={filterJob}
-              onChange={(e) => setFilterJob(e.target.value as Job | 'all')}
+              onChange={(e) => setFilterJob(e.target.value as JobFilter)}
               className="rounded-sm border border-[var(--color-border)] bg-[var(--color-base)] px-2 py-1.5 text-xs text-gray-200"
             >
               <option value="all">All Jobs</option>
+              <option value="unclassified">⚪ Unclassified</option>
               {(Object.entries(JOB_CONFIG) as [Job, typeof JOB_CONFIG[Job]][]).map(([key, config]) => (
                 <option key={key} value={key}>{config.label}</option>
               ))}
@@ -116,7 +141,9 @@ export function IdeaPool() {
               : 'No ideas match your filters'}
           </p>
           <p className="text-xs text-gray-500">
-            Use the Generator to create ideas
+            {currentBoard.ideas.filter(i => i.day === null && i.seedIdea).length === 0
+              ? 'Use Quick Capture above to add your first idea'
+              : 'Try adjusting your filters'}
           </p>
         </div>
       ) : viewMode === 'grid' ? (
@@ -129,7 +156,8 @@ export function IdeaPool() {
         <div className="rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)]">
           <div className="divide-y divide-[var(--color-border)]">
             {poolIdeas.map(idea => {
-              const pillarConfig = PILLAR_CONFIG[idea.pillar];
+              const isUnclassified = idea.pillar === null;
+              const pillarConfig = idea.pillar ? PILLAR_CONFIG[idea.pillar] : null;
               return (
                 <button
                   key={idea.id}
@@ -137,14 +165,22 @@ export function IdeaPool() {
                   className="w-full px-4 py-3 text-left transition-colors hover:bg-[var(--color-base)]"
                 >
                   <div className="mb-1 flex items-center gap-2">
-                    <span className="text-xs">{pillarConfig.emoji}</span>
-                    <span className="text-xs text-gray-400">{idea.stage}</span>
-                    <span className="text-xs text-gray-500">•</span>
-                    <span className="text-xs text-gray-500">{JOB_CONFIG[idea.job].label}</span>
+                    {isUnclassified ? (
+                      <span className="text-xs text-gray-500">⚪ unclassified</span>
+                    ) : (
+                      <>
+                        <span className="text-xs">{pillarConfig!.emoji}</span>
+                        <span className="text-xs text-gray-400">{idea.stage}</span>
+                        <span className="text-xs text-gray-500">•</span>
+                        <span className="text-xs text-gray-500">{idea.job ? JOB_CONFIG[idea.job].label : '?'}</span>
+                      </>
+                    )}
                   </div>
                   <div className="text-sm text-gray-200 line-clamp-2">{idea.seedIdea}</div>
-                  {idea.angle && (
-                    <div className="mt-1 text-xs text-gray-500 line-clamp-1">{idea.angle}</div>
+                  {idea.angleCandidates.length > 0 && idea.selectedAngleIndex !== null && (
+                    <div className="mt-1 text-xs text-gray-500 line-clamp-1">
+                      {idea.angleCandidates[idea.selectedAngleIndex]?.text}
+                    </div>
                   )}
                 </button>
               );

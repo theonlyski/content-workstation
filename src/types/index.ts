@@ -4,14 +4,19 @@ export type Job = 'growth' | 'authority' | 'engagement' | 'soft_sales';
 
 export type Stage = 'draft' | 'angled' | 'hooked' | 'captioned' | 'repurposed' | 'reviewed';
 
-export type AngleType = 
-  | 'mistake' 
-  | 'myth' 
-  | 'lesson' 
-  | 'hot_take' 
-  | 'before_after' 
-  | 'step_by_step' 
+export type AngleType =
+  | 'mistake'
+  | 'myth'
+  | 'lesson'
+  | 'hot_take'
+  | 'before_after'
+  | 'step_by_step'
   | 'beginner_vs_advanced';
+
+export interface AngleCandidate {
+  text: string;
+  angleType: AngleType;
+}
 
 export interface Hook {
   text: string;
@@ -33,19 +38,22 @@ export interface Review {
 
 export interface Idea {
   id: string;
-  day: number | null;  // null = in Idea Pool, 1-30 = scheduled in 30-Day Plan
-  pillar: Pillar;
-  job: Job;
+  day: number | null;       // null = in Idea Pool, 1-30 = scheduled in 30-Day Plan
+  seedIdea: string;         // the raw, fast-captured thought — the only thing required to create an Idea
+  pillar: Pillar | null;    // null until AI classifies it; manually overridable any time
+  pillarSource: 'ai' | 'manual';
+  job: Job | null;          // null until AI classifies it; manually overridable any time
+  jobSource: 'ai' | 'manual';
   stage: Stage;
-  seedIdea: string;
-  angle: string;
-  angleType: AngleType | '';
+  angleCandidates: AngleCandidate[];  // batch generated together, spanning multiple angle types
+  selectedAngleIndex: number | null;  // which candidate is "active" for further development
   hooks: Hook[];
   selectedHookIndex: number | null;
   caption: string;
   repurposed: Repurposed;
   review: Review;
   notes: string;
+  parentIdeaId: string | null;  // set when spun off from another angle candidate
   updatedAt: string;
 }
 
@@ -67,7 +75,7 @@ export const PILLAR_CONFIG: Record<Pillar, { label: string; color: string; emoji
 export const JOB_CONFIG: Record<Job, { label: string; description: string }> = {
   growth: { label: 'Growth', description: 'Reach new people, highly shareable' },
   authority: { label: 'Authority', description: 'Build trust/expertise, teaches something' },
-  engagement: { label: 'Engagement', description: 'Spark comments/saves, emotionally resonant' },
+  engagement: { label: 'Engagement', description: 'Spark comments/saves/relate, emotionally resonant' },
   soft_sales: { label: 'Soft Sales', description: 'Invite toward offer without hard pitching' },
 };
 

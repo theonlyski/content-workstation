@@ -3,7 +3,7 @@
 ## What this is
 A single-user web app that lets one person generate and develop 30 days of content in a single ~90-minute session, repeatable every Sunday, with no team. It is a **persistent workspace**, not a wizard: any idea can be created, developed, or scheduled in any order, at any time. Nothing is a one-way linear flow.
 
-**Core flow (pool-first, schedule-last, but never forced):** ideas are born into a raw **Idea Pool**, unassigned to any day. All development — angle, hooks, caption, repurposing, review — happens on pool ideas, independent of scheduling. Only once an idea is ready (fully developed, or at whatever stage the user chooses) does it get pulled into the **30-Day Plan**, a calendar grid used purely for scheduling/placement. A user is free to schedule early or develop late if they want — the pool and the plan are just two views over the same ideas, not two forced phases — but the natural rhythm is: fill the pool, develop freely, schedule what's ready.
+**Core flow (pool-first, schedule-last, but never forced):** ideas are born into a raw **Idea Pool** via fast, frictionless capture — type a raw thought, it's saved, nothing else required. No pillar, job, or type selection at capture time; **the AI classifies pillar and job automatically** once you generate angles for an idea (manual override always available, never required). All development — angle, hooks, caption, repurposing, review — happens on pool ideas, independent of scheduling. Only once an idea is ready (fully developed, or at whatever stage the user chooses) does it get pulled into the **30-Day Plan**, a calendar grid used purely for scheduling/placement. A user is free to schedule early or develop late if they want — the pool and the plan are just two views over the same ideas, not two forced phases — but the natural rhythm is: capture fast, develop freely, schedule what's ready.
 
 **Build phasing**: Phase 1 (build now) is local-first — runs in the browser, no backend, no deploy, no cost. Phase 2 (upgrade later) adds a backend so the same data is reachable from desktop and phone. Build Phase 1's data layer so this upgrade is a swap, not a rewrite — see storage section below.
 
@@ -27,7 +27,7 @@ A solo creator/teacher in internal arts and embodied living — taichi, qigong, 
 - **Engagement** = spark comments/saves/relate, emotionally resonant
 - **Soft sales** = invite toward the offer (class, coaching, community) without hard pitching
 
-Every idea card must be tagged with exactly one pillar and one job (job can be overridden manually even if it doesn't match the pillar's default).
+Every idea is tagged with exactly one pillar and one job, but **the user never picks these manually at creation** — the AI infers both from the raw idea's content when angles are generated (see section 5). A manual override control must exist on the idea (edit pillar/job directly) for the rare case the AI gets it wrong, but this is a correction, not a required step.
 
 ## 2. 30-day rotation logic (a default generator, not a hard rule)
 Default weekly skeleton the generator proposes, but the user can override any single day:
@@ -43,16 +43,23 @@ Target monthly balance to display and warn against drift from: ~40% authority, ~
 
 ## 3. Data model
 ```ts
+type AngleCandidate = {
+  text: string;
+  angleType: 'mistake' | 'myth' | 'lesson' | 'hot_take' | 'before_after' | 'step_by_step' | 'beginner_vs_advanced';
+};
+
 type Idea = {
   id: string;
   day: number | null;       // null = still in the Idea Pool, unscheduled. 1-30 once placed in the 30-Day Plan.
-  pillar: 'internal_power' | 'body_intelligence' | 'natural_energy' | 'practice_life';
-  job: 'growth' | 'authority' | 'engagement' | 'soft_sales';
+  seedIdea: string;         // the raw, fast-captured thought — the only thing required to create an Idea
+  pillar: 'internal_power' | 'body_intelligence' | 'natural_energy' | 'practice_life' | null; // null until AI classifies it (happens on first angle generation); manually overridable any time
+  pillarSource: 'ai' | 'manual';   // did the AI infer this, or did the user correct it?
+  job: 'growth' | 'authority' | 'engagement' | 'soft_sales' | null; // same pattern as pillar
+  jobSource: 'ai' | 'manual';
   stage: 'draft' | 'angled' | 'hooked' | 'captioned' | 'repurposed' | 'reviewed';
-  seedIdea: string;         // one-line core idea
-  angle: string;            // the specific angle chosen (mistake/myth/lesson/hot take/before-after/step-by-step/beginner-vs-advanced)
-  angleType: string;        // which of the 7 angle types this is
-  hooks: { text: string; style: string }[]; // candidate hooks, one marked selected
+  angleCandidates: AngleCandidate[]; // a batch generated together, spanning multiple angle types automatically
+  selectedAngleIndex: number | null; // which candidate is "active" for this idea's further development
+  hooks: { text: string; style: string }[]; // candidate hooks for the selected angle, one marked selected
   selectedHookIndex: number | null;
   caption: string;
   repurposed: {
@@ -67,6 +74,7 @@ type Idea = {
     standsAlone: boolean;
   };
   notes: string;
+  parentIdeaId: string | null; // set when this idea was "spun off" from another angle candidate — see section 5
   updatedAt: string;
 };
 
@@ -84,12 +92,13 @@ Persist boards keyed by month so past months remain browsable.
 ## 4. Screens
 
 ### A. Idea Pool (home/default view)
-This is where ideas are born and developed — no day assignment required or implied here.
-- A list or masonry grid of idea cards, unassigned to any day, tagged by pillar color and job badge, showing stage progress (5-segment ring: angled/hooked/captioned/repurposed/reviewed).
-- Filter/sort by pillar, job, or stage — this is the primary way to navigate when the pool gets large (e.g. "show me all unfinished Body Intelligence ideas").
-- Persistent top bar: **Generator** (freeform seed input, or pick pillar + job → generate a draft idea into the pool) and **Balance meter** (live bar chart of the pool's pillar/job mix vs target — useful even before anything is scheduled, so you can see the mix skewing before you commit a month to it).
+This is where ideas are born and developed — no day assignment, and no pillar/job selection, required or implied here.
+- **Quick Capture bar** — always visible at the top, a single text field + Add (or Enter to submit). Typing a raw thought and hitting Add creates an `Idea` with only `seedIdea` filled in; everything else (pillar, job, angle, etc.) is empty and filled in later. This must be the fastest possible action in the whole app — no modal, no required fields beyond the text itself.
+- A list or masonry grid of idea cards below the capture bar. Cards with `pillar: null` (not yet classified) show a neutral "unclassified" state rather than a broken/missing color. Once classified (AI or manual), the card picks up its pillar color and job badge, plus stage progress (5-segment ring: angled/hooked/captioned/repurposed/reviewed).
+- Filter/sort by pillar, job, or stage — this is the primary way to navigate when the pool gets large. Include an "unclassified" filter for freshly-captured ideas awaiting their first angle pass.
+- **Balance meter** (live bar chart of the pool's pillar/job mix vs target) — only counts classified ideas.
 - Click any card → opens the Idea Detail Panel (same panel used from the Plan view — see below).
-- A "Send to Plan" action on each card (available at any stage, not gated to "reviewed") opens a day-picker and assigns that idea into the 30-Day Plan, setting `day`. This is the only place `day` gets set from null to a number.
+- A "Send to Plan" action on each card (available at any stage once it has at least a selected angle, not gated to "reviewed") opens a day-picker and assigns that idea into the 30-Day Plan, setting `day`. This is the only place `day` gets set from null to a number.
 
 ### B. 30-Day Plan (calendar/scheduling view)
 Purely a scheduling surface — no generation happens here directly (open the Idea Detail Panel to develop further).
@@ -102,8 +111,8 @@ Purely a scheduling surface — no generation happens here directly (open the Id
 
 ### C. Idea Detail Panel (slide-over on desktop-width, full-screen on phone-width)
 Tabs, all independently editable/regeneratable, freely switchable in any order:
-1. **Angle** — takes `seedIdea`, generates a specific angle from one of 7 types (mistake, myth, lesson, hot take, before/after, step-by-step, beginner-vs-advanced). Button: "Try another angle type." Angle must be able to stand alone as a full post concept.
-2. **Hooks** — generates a set of hook candidates (default 5, "generate 15" option) using curiosity/emotional-tension/specific-outcome/audience-frustration patterns. User selects one as primary; others stay saved for reuse.
+1. **Angle** — one action, "Generate Angles": takes `seedIdea` and produces a batch of angle candidates (default ~6-8) spanning multiple angle types automatically (mistake, myth, lesson, hot take, before/after, step-by-step, beginner-vs-advanced) — the user does not pick a type. In the same call, the AI classifies `pillar` and `job` for the idea (`pillarSource`/`jobSource: 'ai'`) based on the raw idea and the angles generated; both remain manually editable. User picks one candidate as `selectedAngleIndex` to develop further (this idea's `angle` for hooks/caption/repurpose). Any other candidate can be **"Spin off as new idea"** — creates a fresh pool `Idea` with that angle pre-selected, `seedIdea` carried over, and `parentIdeaId` set, so a strong angle that isn't the primary pick doesn't get lost. "Generate more" produces another batch without discarding existing candidates.
+2. **Hooks** — generates a set of hook candidates (default 5, "generate 15" option) for the selected angle, using curiosity/emotional-tension/specific-outcome/audience-frustration patterns. User selects one as primary; others stay saved for reuse.
 3. **Caption** — generates a caption matched to the selected hook, written to make someone hit save (not just like). Editable inline.
 4. **Repurpose** — one click generates all three: video script (hook + beats + on-screen text cues + CTA, sized for Reel/TikTok), carousel outline (slide-by-slide), and an alt caption variant if platform tone should shift.
 5. **Review** — 4-item checklist (hook strength / CTA clear / save-worthy / stands alone as a single post) + free-text notes. Checking all 4 auto-advances `stage` to `reviewed`.
@@ -115,12 +124,12 @@ The filterable/searchable idea list described in section A *is* the Idea Bank �
 
 ## 5. Generation behavior (AI calls)
 Each of these is a distinct, independently triggerable generation action (not steps in a forced sequence):
-- **Idea generation**: given pillar + job (+ optional freeform seed), produce one draft seed idea.
-- **30 angles from one idea**: given a single seed idea, produce 30 genuinely different angles distributed across the 7 angle types, each strong enough to stand alone — used to seed an entire month from one core idea if desired.
-- **Hook + caption generation**: given an idea/angle, produce hooks (default 5, expandable to 15) using curiosity, emotional tension, specific outcomes, and audience frustration as levers, each paired with a caption written to drive saves.
+- **Angle generation (also handles classification)**: given only `seedIdea` (a raw captured thought, nothing else), produce a batch of ~6-8 angle candidates spanning different angle types, and in the same call infer the idea's `pillar` and `job` from the content — the user supplies no pillar/job/type input at any point in this flow. Each angle must be strong enough to stand alone as a full post concept.
+- **30 angles from one idea**: same as above but scaled up — given a single seed idea, produce 30 genuinely different angles distributed across the 7 angle types, used to seed an entire month's worth of spin-off ideas from one core thought if desired.
+- **Hook + caption generation**: given an idea's selected angle, produce hooks (default 5, expandable to 15) using curiosity, emotional tension, specific outcomes, and audience frustration as levers, each paired with a caption written to drive saves.
 - **Repurposing**: given a finished idea (angle + hook + caption), produce the video script, carousel outline, and alt caption in one action.
 
-All generation outputs land as editable text — never locked, never destructive to other tabs' content when regenerated.
+All generation outputs land as editable text — never locked, never destructive to other tabs' content when regenerated. AI-inferred `pillar`/`job` are always user-correctable; a manual correction sets `pillarSource`/`jobSource` to `'manual'` and the AI should not silently overwrite a manual correction on subsequent regenerations of the same idea.
 
 ## 6. Design direction — dark, Tron/cyberpunk, restrained
 - **Base**: near-black `#0A0B0D`, with a faint low-opacity grid-line texture in the background (HUD feel, not decoration).
@@ -132,6 +141,7 @@ All generation outputs land as editable text — never locked, never destructive
 
 ## 7. Non-negotiables
 - No forced linear wizard anywhere — every idea, every tab, every phase (pool vs. plan) is jump-to-able at all times.
+- **Capture is zero-friction and classification-free**: creating an idea requires only typing raw text and submitting — never a pillar, job, or angle-type selection. Pillar and job are always AI-inferred first, manually correctable second.
 - The Idea Pool is where ideas live and get developed by default — scheduling into the 30-Day Plan is an explicit, reversible action a user takes when ready, never an assumption baked into idea creation.
 - Pool/Plan and the Idea Detail Panel are both usable together (panel doesn't fully hide the list/grid behind it) so context is never lost.
 - All AI-generated content is editable and regeneration never destroys sibling tabs' content.

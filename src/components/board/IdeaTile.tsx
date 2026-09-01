@@ -13,7 +13,8 @@ export function IdeaTile({ idea, context }: IdeaTileProps) {
   const selectIdea = useBoardStore(state => state.selectIdea);
   const removeFromPlan = useBoardStore(state => state.removeFromPlan);
   
-  const pillarConfig = PILLAR_CONFIG[idea.pillar];
+  const isUnclassified = idea.pillar === null;
+  const pillarConfig = idea.pillar ? PILLAR_CONFIG[idea.pillar] : null;
   const hasContent = idea.seedIdea.length > 0;
   
   const stageIndex = STAGE_ORDER.indexOf(idea.stage);
@@ -21,30 +22,38 @@ export function IdeaTile({ idea, context }: IdeaTileProps) {
   const filledSegments = Math.max(0, stageIndex);
 
   const handleTileClick = (e: React.MouseEvent) => {
-    // Don't open detail panel if clicking action buttons
     if ((e.target as HTMLElement).closest('button[data-action]')) {
       return;
     }
     selectIdea(idea.id);
   };
 
+  const borderColor = hasContent
+    ? (pillarConfig?.color || 'var(--color-border)')
+    : 'var(--color-border)';
+  
+  const backgroundColor = hasContent
+    ? (pillarConfig ? `${pillarConfig.color}10` : 'var(--color-surface)')
+    : 'var(--color-surface)';
+
   return (
     <>
       <div
         onClick={handleTileClick}
         className="relative aspect-square rounded-sm border transition-all duration-200 hover:scale-[1.02] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] focus:ring-offset-2 focus:ring-offset-[var(--color-base)]"
-        style={{
-          borderColor: hasContent ? pillarConfig.color : 'var(--color-border)',
-          backgroundColor: hasContent ? `${pillarConfig.color}10` : 'var(--color-surface)',
-        }}
+        style={{ borderColor, backgroundColor }}
       >
-        {/* Day number (plan context) or Pool badge */}
+        {/* Day number (plan context) or Pool/Unclassified badge */}
         <div className="absolute top-1.5 left-2 font-mono text-xs text-gray-500">
-          {context === 'plan' && idea.day !== null ? idea.day : '⚡'}
+          {context === 'plan' && idea.day !== null
+            ? idea.day
+            : isUnclassified
+            ? '⚪'
+            : '⚡'}
         </div>
 
         {/* Pillar emoji */}
-        {hasContent && (
+        {hasContent && pillarConfig && (
           <div className="absolute top-1 right-1.5 text-sm">
             {pillarConfig.emoji}
           </div>
@@ -71,7 +80,9 @@ export function IdeaTile({ idea, context }: IdeaTileProps) {
                 key={i}
                 className="flex-1 border-r border-[var(--color-base)] last:border-r-0"
                 style={{
-                  backgroundColor: i < filledSegments ? pillarConfig.color : 'transparent',
+                  backgroundColor: i < filledSegments
+                    ? (pillarConfig?.color || 'var(--color-accent)')
+                    : 'transparent',
                   opacity: i < filledSegments ? 1 : 0.2,
                 }}
               />
@@ -82,7 +93,7 @@ export function IdeaTile({ idea, context }: IdeaTileProps) {
         {/* Action buttons */}
         {hasContent && (
           <div className="absolute bottom-2 right-1.5 flex items-center gap-1">
-            {context === 'pool' && (
+            {context === 'pool' && idea.selectedAngleIndex !== null && (
               <button
                 data-action="send-to-plan"
                 onClick={(e) => {

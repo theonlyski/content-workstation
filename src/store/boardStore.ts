@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Board, Idea, Pillar, Job } from '../types';
-import { getBoardByMonth, saveBoard, createEmptyBoard } from '../lib/db';
+import { getBoardByMonth, saveBoard, createEmptyBoard, createEmptyIdea } from '../lib/db';
 
 interface BoardState {
   currentBoard: Board | null;
@@ -19,6 +19,9 @@ interface BoardState {
   addIdeaToPool: (idea: Idea) => Promise<void>;
   sendToPlan: (ideaId: string, day: number) => Promise<void>;
   removeFromPlan: (ideaId: string) => Promise<void>;
+  
+  // Spinoff action
+  spinoffIdea: (parentIdeaId: string, angleText: string, angleType: string) => Promise<void>;
 }
 
 export const useBoardStore = create<BoardState>((set, get) => ({
@@ -114,7 +117,6 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     const { currentBoard } = get();
     if (!currentBoard) return;
 
-    // Check if day is already taken
     const existingIdea = currentBoard.ideas.find(i => i.day === day);
     if (existingIdea) {
       console.warn(`Day ${day} is already scheduled`);
@@ -148,13 +150,41 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     set({ currentBoard: updatedBoard });
     await saveBoard(updatedBoard);
   },
+
+  // Spinoff: create a new pool idea from an angle candidate of another idea
+  spinoffIdea: async (parentIdeaId: string, angleText: string, angleType: string) => {
+    const { currentBoard } = get();
+    if (!currentBoard) return;
+
+    const parentIdea = currentBoard.ideas.find(i => i.id === parentIdeaId);
+    if (!parentIdea) return;
+
+    const newIdea = createEmptyIdea();
+    newIdea.seedIdea = parentIdea.seedIdea;
+    newIdea.pillar = parentIdea.pillar;
+    newIdea.pillarSource = parentIdea.pillarSource;
+    newIdea.job = parentIdea.job;
+    newIdea.jobSource = parentIdea.jobSource;
+    newIdea.parentIdeaId = parentIdeaId;
+    // Pre-select the spun-off angle
+    newIdea.angleCandidates = [{ text: angleText, angleType: angleType as any }];
+    newIdea.selectedAngleIndex = 0;
+    newIdea.stage = 'angled';
+
+    const updatedBoard = {
+      ...currentBoard,
+      ideas: [...currentBoard.ideas, newIdea],
+    };
+    set({ currentBoard: updatedBoard });
+    await saveBoard(updatedBoard);
+  },
 }));
 
-// Stats for pool ideas (day === null)
+// Stats for pool ideas (day === null), only counting classified ideas
 export const usePoolStats = () => {
   const board = useBoardStore(state => state.currentBoard);
-  
-  if (!board) return { pillarCounts: {}, jobCounts: {}, total: 0 };
+
+  if (!board) return { pillarCounts: {}, jobCounts: {}, total: 0, unclassified: 0 };
 
   const pillarCounts: Record<Pillar, number> = {
     internal_power: 0,
@@ -170,24 +200,31 @@ export const usePoolStats = () => {
     soft_sales: 0,
   };
 
+  let unclassified = 0;
+
   board.ideas.forEach(idea => {
     if (idea.day === null && idea.seedIdea) {
-      pillarCounts[idea.pillar]++;
-      jobCounts[idea.job]++;
+      if (idea.pillar !== null && idea.job !== null) {
+        pillarCounts[idea.pillar]++;
+        jobCounts[idea.job]++;
+      } else {
+        unclassified++;
+      }
     }
   });
 
   return {
     pillarCounts,
     jobCounts,
-    total: board.ideas.filter(i => i.day === null && i.seedIdea).length,
+    total: board.ideas.filter(i => i.day === null && i.seedIdea && i.pillar !== null).length,
+    unclassified,
   };
 };
 
 // Stats for plan ideas (day !== null)
 export const usePlanStats = () => {
   const board = useBoardStore(state => state.currentBoard);
-  
+
   if (!board) return { pillarCounts: {}, jobCounts: {}, total: 0 };
 
   const pillarCounts: Record<Pillar, number> = {
@@ -205,7 +242,7 @@ export const usePlanStats = () => {
   };
 
   board.ideas.forEach(idea => {
-    if (idea.day !== null && idea.seedIdea) {
+    if (idea.day !== null && idea.seedIdea && idea.pillar !== null && idea.job !== null) {
       pillarCounts[idea.pillar]++;
       jobCounts[idea.job]++;
     }
