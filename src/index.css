@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+@theme {
+  --color-base: #0A0B0D;
+  --color-surface: #12131A;
+  --color-border: #1E2030;
+  --color-accent: #06b6d4;
+  --color-accent-glow: rgba(6, 182, 212, 0.4);
+  --color-text: #e5e7eb;
+  --color-pillar-internal: #6366f1;
+  --color-pillar-body: #06b6d4;
+  --color-pillar-natural: #10b981;
+  --color-pillar-practice: #f59e0b;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--color-base);
+  color: #e5e7eb;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+  width: 100%;
+}
+
+/* HUD grid background */
+.hud-bg {
+  background-image:
+    linear-gradient(rgba(6, 182, 212, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(6, 182, 212, 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* Glow effects */
+.glow-border {
+  box-shadow: 0 0 0 1px var(--color-accent), 0 0 12px var(--color-accent-glow);
+}
+
+.glow-border-subtle {
+  box-shadow: 0 0 0 1px rgba(6, 182, 212, 0.3);
+}
+
+/* Pillar color utilities */
+.pillar-internal { --pillar-color: var(--color-pillar-internal); }
+.pillar-body { --pillar-color: var(--color-pillar-body); }
+.pillar-natural { --pillar-color: var(--color-pillar-natural); }
+.pillar-practice { --pillar-color: var(--color-pillar-practice); }
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-base);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-accent);
+}
+
+/* Animations */
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in {
+  animation: slide-in-right 0.25s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-slide-in {
+    animation: none;
+  }
+}
