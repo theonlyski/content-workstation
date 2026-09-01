@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react';
-import { BoardGrid } from './components/board/BoardGrid';
+import { PlanGrid } from './components/plan/PlanGrid';
+import { IdeaPool } from './components/pool/IdeaPool';
 import { Generator } from './components/generator/Generator';
 import { BalanceMeter } from './components/balance/BalanceMeter';
 import { IdeaDetailPanel } from './components/idea/IdeaDetailPanel';
-import { IdeaBank } from './components/idea/IdeaBank';
 import { useBoardStore } from './store/boardStore';
 
-type ViewMode = 'board' | 'bank';
+type ViewMode = 'pool' | 'plan';
 
 function App() {
-  const [viewMode, setViewMode] = useState<ViewMode>('board');
+  const [viewMode, setViewMode] = useState<ViewMode>('pool');
   const [currentMonth, setCurrentMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -33,6 +33,9 @@ function App() {
     const newMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
     setCurrentMonth(newMonth);
   };
+
+  const poolCount = currentBoard?.ideas.filter(i => i.day === null && i.seedIdea).length || 0;
+  const planCount = currentBoard?.ideas.filter(i => i.day !== null).length || 0;
 
   return (
     <div className="hud-bg min-h-screen">
@@ -85,40 +88,37 @@ function App() {
       {/* Main content */}
       <main className="mx-auto max-w-7xl px-4 py-6">
         <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-          {/* Board area */}
+          {/* Main area */}
           <div>
             {currentBoard ? (
               <>
                 <div className="mb-4 flex items-center justify-between">
                   <div className="flex gap-2">
                     <button
-                      onClick={() => setViewMode('board')}
+                      onClick={() => setViewMode('pool')}
                       className="rounded-sm border px-3 py-1.5 text-xs font-medium transition-colors"
                       style={{
-                        borderColor: viewMode === 'board' ? 'var(--color-accent)' : 'var(--color-border)',
-                        color: viewMode === 'board' ? 'var(--color-accent)' : 'var(--color-text)',
-                        backgroundColor: viewMode === 'board' ? 'rgba(6, 182, 212, 0.1)' : 'transparent',
+                        borderColor: viewMode === 'pool' ? 'var(--color-accent)' : 'var(--color-border)',
+                        color: viewMode === 'pool' ? 'var(--color-accent)' : 'var(--color-text)',
+                        backgroundColor: viewMode === 'pool' ? 'rgba(6, 182, 212, 0.1)' : 'transparent',
                       }}
                     >
-                      Board
+                      Idea Pool ({poolCount})
                     </button>
                     <button
-                      onClick={() => setViewMode('bank')}
+                      onClick={() => setViewMode('plan')}
                       className="rounded-sm border px-3 py-1.5 text-xs font-medium transition-colors"
                       style={{
-                        borderColor: viewMode === 'bank' ? 'var(--color-accent)' : 'var(--color-border)',
-                        color: viewMode === 'bank' ? 'var(--color-accent)' : 'var(--color-text)',
-                        backgroundColor: viewMode === 'bank' ? 'rgba(6, 182, 212, 0.1)' : 'transparent',
+                        borderColor: viewMode === 'plan' ? 'var(--color-accent)' : 'var(--color-border)',
+                        color: viewMode === 'plan' ? 'var(--color-accent)' : 'var(--color-text)',
+                        backgroundColor: viewMode === 'plan' ? 'rgba(6, 182, 212, 0.1)' : 'transparent',
                       }}
                     >
-                      Idea Bank
+                      30-Day Plan ({planCount}/30)
                     </button>
                   </div>
-                  <div className="text-xs text-gray-500">
-                    {currentBoard.ideas.filter(i => i.seedIdea).length} / 30 ideas
-                  </div>
                 </div>
-                {viewMode === 'board' ? <BoardGrid /> : <IdeaBank />}
+                {viewMode === 'pool' ? <IdeaPool /> : <PlanGrid />}
               </>
             ) : (
               <div className="flex h-96 flex-col items-center justify-center rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)]">
@@ -138,7 +138,7 @@ function App() {
           {/* Sidebar */}
           <aside className="space-y-4">
             <Generator />
-            <BalanceMeter />
+            <BalanceMeter context={viewMode} />
           </aside>
         </div>
       </main>

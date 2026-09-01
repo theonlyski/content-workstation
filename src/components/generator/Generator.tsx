@@ -2,30 +2,30 @@ import { useState } from 'react';
 import { PILLAR_CONFIG, JOB_CONFIG, type Pillar, type Job } from '../../types';
 import { useBoardStore } from '../../store/boardStore';
 import { generateIdea } from '../../lib/ai';
+import { createEmptyIdea } from '../../lib/db';
 
 export function Generator() {
-  const [selectedDay, setSelectedDay] = useState(1);
   const [selectedPillar, setSelectedPillar] = useState<Pillar>('internal_power');
   const [selectedJob, setSelectedJob] = useState<Job>('authority');
   const [isGenerating, setIsGenerating] = useState(false);
 
   const currentBoard = useBoardStore(state => state.currentBoard);
-  const updateIdea = useBoardStore(state => state.updateIdea);
+  const addIdeaToPool = useBoardStore(state => state.addIdeaToPool);
 
   const handleGenerate = async () => {
     if (!currentBoard) return;
-    
-    const idea = currentBoard.ideas.find(i => i.day === selectedDay);
-    if (!idea) return;
 
     setIsGenerating(true);
     try {
       const seedIdea = await generateIdea(selectedPillar, selectedJob);
-      await updateIdea(idea.id, {
-        seedIdea,
-        pillar: selectedPillar,
-        job: selectedJob,
-      });
+      
+      // Create a new idea in the pool (day: null)
+      const newIdea = createEmptyIdea();
+      newIdea.seedIdea = seedIdea;
+      newIdea.pillar = selectedPillar;
+      newIdea.job = selectedJob;
+      
+      await addIdeaToPool(newIdea);
     } catch (error) {
       console.error('Failed to generate idea:', error);
     } finally {
@@ -40,20 +40,6 @@ export function Generator() {
       </h3>
 
       <div className="space-y-3">
-        {/* Day selector */}
-        <div>
-          <label className="mb-1 block text-xs text-gray-400">Day</label>
-          <select
-            value={selectedDay}
-            onChange={(e) => setSelectedDay(Number(e.target.value))}
-            className="w-full rounded-sm border border-[var(--color-border)] bg-[var(--color-base)] px-3 py-2 text-sm text-gray-200 focus:border-[var(--color-accent)] focus:outline-none"
-          >
-            {Array.from({ length: 30 }, (_, i) => (
-              <option key={i + 1} value={i + 1}>Day {i + 1}</option>
-            ))}
-          </select>
-        </div>
-
         {/* Pillar selector */}
         <div>
           <label className="mb-1 block text-xs text-gray-400">Pillar</label>
@@ -99,11 +85,15 @@ export function Generator() {
         {/* Generate button */}
         <button
           onClick={handleGenerate}
-          disabled={isGenerating}
+          disabled={isGenerating || !currentBoard}
           className="w-full rounded-sm border border-[var(--color-accent)] bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-[var(--color-base)] transition-all hover:bg-[var(--color-accent)]/90 disabled:opacity-50"
         >
-          {isGenerating ? 'Generating...' : 'Generate Idea'}
+          {isGenerating ? 'Generating...' : 'Generate to Pool'}
         </button>
+        
+        {!currentBoard && (
+          <p className="text-xs text-gray-500 text-center">Create a board first</p>
+        )}
       </div>
     </div>
   );

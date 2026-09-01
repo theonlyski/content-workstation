@@ -33,7 +33,7 @@ export interface Review {
 
 export interface Idea {
   id: string;
-  day: number;
+  day: number | null;  // null = in Idea Pool, 1-30 = scheduled in 30-Day Plan
   pillar: Pillar;
   job: Job;
   stage: Stage;

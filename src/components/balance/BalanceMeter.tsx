@@ -1,8 +1,15 @@
 import { PILLAR_CONFIG, JOB_CONFIG, TARGET_MONTHLY_BALANCE, type Pillar, type Job } from '../../types';
-import { useBoardStats } from '../../store/boardStore';
+import { usePoolStats, usePlanStats } from '../../store/boardStore';
 
-export function BalanceMeter() {
-  const { pillarCounts, jobCounts, total } = useBoardStats();
+interface BalanceMeterProps {
+  context: 'pool' | 'plan';
+}
+
+export function BalanceMeter({ context }: BalanceMeterProps) {
+  const poolStats = usePoolStats();
+  const planStats = usePlanStats();
+  const stats = context === 'pool' ? poolStats : planStats;
+  const { pillarCounts, jobCounts, total } = stats;
 
   const pillarPercentages = Object.entries(pillarCounts).reduce((acc, [key, count]) => {
     acc[key as Pillar] = total > 0 ? (count / total) * 100 : 0;
@@ -24,7 +31,7 @@ export function BalanceMeter() {
   return (
     <div className="rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
       <h3 className="mb-3 font-mono text-sm uppercase tracking-wider text-[var(--color-accent)]">
-        Balance
+        Balance {context === 'pool' ? '(Pool)' : '(Plan)'}
       </h3>
 
       {/* Pillar distribution */}
@@ -97,7 +104,9 @@ export function BalanceMeter() {
       {/* Total count */}
       <div className="mt-4 border-t border-[var(--color-border)] pt-3 text-center">
         <div className="font-mono text-2xl text-[var(--color-accent)]">{total}</div>
-        <div className="text-xs text-gray-400">ideas generated</div>
+        <div className="text-xs text-gray-400">
+          {context === 'pool' ? 'ideas in pool' : 'ideas scheduled'}
+        </div>
       </div>
     </div>
   );

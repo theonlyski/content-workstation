@@ -14,6 +14,11 @@ interface BoardState {
   selectIdea: (ideaId: string | null) => void;
   regenerateIdeaField: (ideaId: string, field: keyof Idea, value: string) => Promise<void>;
   saveCurrentBoard: () => Promise<void>;
+  
+  // Pool/Plan actions
+  addIdeaToPool: (idea: Idea) => Promise<void>;
+  sendToPlan: (ideaId: string, day: number) => Promise<void>;
+  removeFromPlan: (ideaId: string) => Promise<void>;
 }
 
 export const useBoardStore = create<BoardState>((set, get) => ({
@@ -91,9 +96,62 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     if (!currentBoard) return;
     await saveBoard(currentBoard);
   },
+
+  // Pool/Plan actions
+  addIdeaToPool: async (idea: Idea) => {
+    const { currentBoard } = get();
+    if (!currentBoard) return;
+
+    const updatedBoard = {
+      ...currentBoard,
+      ideas: [...currentBoard.ideas, idea],
+    };
+    set({ currentBoard: updatedBoard });
+    await saveBoard(updatedBoard);
+  },
+
+  sendToPlan: async (ideaId: string, day: number) => {
+    const { currentBoard } = get();
+    if (!currentBoard) return;
+
+    // Check if day is already taken
+    const existingIdea = currentBoard.ideas.find(i => i.day === day);
+    if (existingIdea) {
+      console.warn(`Day ${day} is already scheduled`);
+      return;
+    }
+
+    const updatedIdeas = currentBoard.ideas.map(idea => {
+      if (idea.id === ideaId) {
+        return { ...idea, day, updatedAt: new Date().toISOString() };
+      }
+      return idea;
+    });
+
+    const updatedBoard = { ...currentBoard, ideas: updatedIdeas };
+    set({ currentBoard: updatedBoard });
+    await saveBoard(updatedBoard);
+  },
+
+  removeFromPlan: async (ideaId: string) => {
+    const { currentBoard } = get();
+    if (!currentBoard) return;
+
+    const updatedIdeas = currentBoard.ideas.map(idea => {
+      if (idea.id === ideaId) {
+        return { ...idea, day: null, updatedAt: new Date().toISOString() };
+      }
+      return idea;
+    });
+
+    const updatedBoard = { ...currentBoard, ideas: updatedIdeas };
+    set({ currentBoard: updatedBoard });
+    await saveBoard(updatedBoard);
+  },
 }));
 
-export const useBoardStats = () => {
+// Stats for pool ideas (day === null)
+export const usePoolStats = () => {
   const board = useBoardStore(state => state.currentBoard);
   
   if (!board) return { pillarCounts: {}, jobCounts: {}, total: 0 };
@@ -113,7 +171,7 @@ export const useBoardStats = () => {
   };
 
   board.ideas.forEach(idea => {
-    if (idea.seedIdea) {
+    if (idea.day === null && idea.seedIdea) {
       pillarCounts[idea.pillar]++;
       jobCounts[idea.job]++;
     }
@@ -122,6 +180,40 @@ export const useBoardStats = () => {
   return {
     pillarCounts,
     jobCounts,
-    total: board.ideas.filter(i => i.seedIdea).length,
+    total: board.ideas.filter(i => i.day === null && i.seedIdea).length,
+  };
+};
+
+// Stats for plan ideas (day !== null)
+export const usePlanStats = () => {
+  const board = useBoardStore(state => state.currentBoard);
+  
+  if (!board) return { pillarCounts: {}, jobCounts: {}, total: 0 };
+
+  const pillarCounts: Record<Pillar, number> = {
+    internal_power: 0,
+    body_intelligence: 0,
+    natural_energy: 0,
+    practice_life: 0,
+  };
+
+  const jobCounts: Record<Job, number> = {
+    growth: 0,
+    authority: 0,
+    engagement: 0,
+    soft_sales: 0,
+  };
+
+  board.ideas.forEach(idea => {
+    if (idea.day !== null && idea.seedIdea) {
+      pillarCounts[idea.pillar]++;
+      jobCounts[idea.job]++;
+    }
+  });
+
+  return {
+    pillarCounts,
+    jobCounts,
+    total: board.ideas.filter(i => i.day !== null && i.seedIdea).length,
   };
 };

@@ -40,19 +40,18 @@ export async function deleteBoard(id: number): Promise<void> {
 }
 
 export function createEmptyBoard(month: string): Board {
-  const ideas: Idea[] = Array.from({ length: 30 }, (_, i) => createEmptyIdea(i + 1));
   return {
     month,
-    ideas,
+    ideas: [],  // Start empty — ideas are added to the pool via Generator
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
 }
 
-export function createEmptyIdea(day: number): Idea {
+export function createEmptyIdea(): Idea {
   return {
-    id: `idea-${day}-${Date.now()}`,
-    day,
+    id: `idea-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    day: null,  // New ideas start in the pool
     pillar: 'internal_power',
     job: 'authority',
     stage: 'draft',

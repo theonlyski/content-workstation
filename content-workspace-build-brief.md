@@ -1,7 +1,11 @@
 # Build Brief: 30-Day Content Workspace
 
 ## What this is
-A single-user, local-first web app that lets one person generate and develop 30 days of content in a single ~90-minute session, repeatable every Sunday, with no team. It is a **persistent workspace**, not a wizard: any of the 30 ideas can be opened, developed, skipped, or revisited in any order, at any time. Nothing is a one-way linear flow.
+A single-user web app that lets one person generate and develop 30 days of content in a single ~90-minute session, repeatable every Sunday, with no team. It is a **persistent workspace**, not a wizard: any idea can be created, developed, or scheduled in any order, at any time. Nothing is a one-way linear flow.
+
+**Core flow (pool-first, schedule-last, but never forced):** ideas are born into a raw **Idea Pool**, unassigned to any day. All development — angle, hooks, caption, repurposing, review — happens on pool ideas, independent of scheduling. Only once an idea is ready (fully developed, or at whatever stage the user chooses) does it get pulled into the **30-Day Plan**, a calendar grid used purely for scheduling/placement. A user is free to schedule early or develop late if they want — the pool and the plan are just two views over the same ideas, not two forced phases — but the natural rhythm is: fill the pool, develop freely, schedule what's ready.
+
+**Build phasing**: Phase 1 (build now) is local-first — runs in the browser, no backend, no deploy, no cost. Phase 2 (upgrade later) adds a backend so the same data is reachable from desktop and phone. Build Phase 1's data layer so this upgrade is a swap, not a rewrite — see storage section below.
 
 ## Who it's for
 A solo creator/teacher in internal arts and embodied living — taichi, qigong, zhanzhuang, nervous-system/breathwork, natural fermentation (tempeh etc.), and daily practice/philosophy. Primary platforms: **Instagram Reels + TikTok** (short-form video first), with **captions** and **IG carousels** as standard secondary formats.
@@ -41,7 +45,7 @@ Target monthly balance to display and warn against drift from: ~40% authority, ~
 ```ts
 type Idea = {
   id: string;
-  day: number; // 1-30, reassignable by drag or dropdown, not fixed
+  day: number | null;       // null = still in the Idea Pool, unscheduled. 1-30 once placed in the 30-Day Plan.
   pillar: 'internal_power' | 'body_intelligence' | 'natural_energy' | 'practice_life';
   job: 'growth' | 'authority' | 'engagement' | 'soft_sales';
   stage: 'draft' | 'angled' | 'hooked' | 'captioned' | 'repurposed' | 'reviewed';
@@ -68,23 +72,35 @@ type Idea = {
 
 type Board = {
   month: string; // e.g. "2026-09"
-  ideas: Idea[];
+  ideas: Idea[]; // includes both pooled (day: null) and scheduled ideas — one list, filtered by view
 };
 ```
-Persist boards keyed by month so past months remain browsable. Local-first storage (e.g. IndexedDB/localStorage or a simple file-backed store) — no server dependency required for a single user.
+Persist boards keyed by month so past months remain browsable.
+
+**Storage — Phase 1 (build now)**: local-first, browser-based storage (e.g. IndexedDB) — no server, no deploy, no cost. All board/idea reads and writes should go through a single data-access module (e.g. `getIdeas`, `saveIdea`, `getBoard`) rather than being called ad hoc from components, so that module is the only thing that changes in Phase 2.
+
+**Storage — Phase 2 (upgrade later, not now)**: swap the data-access module's internals to call a small backend (e.g. Node/Express) backed by a lightweight database (SQLite is enough for one user), deployed somewhere reachable over the internet (e.g. Fly.io, Render, Railway). Add a simple passcode/PIN gate on load since the URL becomes internet-reachable — no multi-user auth needed. Don't build any of this in Phase 1; just don't let component code assume `localStorage`/`IndexedDB` directly, so the swap doesn't touch the UI layer.
 
 ## 4. Screens
 
-### A. Board (home view)
-- 30-tile grid, laid out like a calendar (rows = weeks). Each tile:
-  - Background/ring tinted by pillar color
-  - Small job icon/badge
-  - Stage progress ring (5 segments: angled/hooked/captioned/repurposed/reviewed)
-  - Click anywhere on tile → opens Idea Detail Panel for that day
-- Persistent top bar: **Generator** (pick pillar + job + day → generate a draft idea into that slot) and **Balance meter** (live bar chart of pillar/job mix vs target, updates as ideas are tagged).
-- A dismissible "Sunday session" progress rail (4 soft phases: Dump → Hooks & Captions → Repurpose → Review) — purely informational, never blocks navigation between tiles or tabs.
+### A. Idea Pool (home/default view)
+This is where ideas are born and developed — no day assignment required or implied here.
+- A list or masonry grid of idea cards, unassigned to any day, tagged by pillar color and job badge, showing stage progress (5-segment ring: angled/hooked/captioned/repurposed/reviewed).
+- Filter/sort by pillar, job, or stage — this is the primary way to navigate when the pool gets large (e.g. "show me all unfinished Body Intelligence ideas").
+- Persistent top bar: **Generator** (freeform seed input, or pick pillar + job → generate a draft idea into the pool) and **Balance meter** (live bar chart of the pool's pillar/job mix vs target — useful even before anything is scheduled, so you can see the mix skewing before you commit a month to it).
+- Click any card → opens the Idea Detail Panel (same panel used from the Plan view — see below).
+- A "Send to Plan" action on each card (available at any stage, not gated to "reviewed") opens a day-picker and assigns that idea into the 30-Day Plan, setting `day`. This is the only place `day` gets set from null to a number.
 
-### B. Idea Detail Panel (slide-over or full-width panel, not a modal that blocks the board)
+### B. 30-Day Plan (calendar/scheduling view)
+Purely a scheduling surface — no generation happens here directly (open the Idea Detail Panel to develop further).
+- 30-tile grid, calendar-style (rows = weeks). Each tile shows a scheduled idea's pillar ring, job badge, and stage progress — or sits empty if nothing's been scheduled for that day yet.
+- Click a filled tile → opens the Idea Detail Panel for that idea (full development still available from here — scheduling doesn't lock an idea from further editing).
+- Click an empty tile → offers "pull from pool" (opens a quick picker of pool ideas, filterable by pillar/job) as the primary action; a direct "generate new" shortcut is also available for filling gaps without leaving the Plan.
+- Un-scheduling: an action to send a scheduled idea back to the pool (`day` → null) if the placement doesn't feel right — this must be reversible, not a one-way commit.
+- Balance meter here shows the *scheduled* month's mix vs target (distinct from the Pool's balance meter, which shows the whole pool).
+- A dismissible "Sunday session" progress rail (soft phases: Pool fill → Develop → Schedule → Review) — purely informational, never blocks navigation.
+
+### C. Idea Detail Panel (slide-over on desktop-width, full-screen on phone-width)
 Tabs, all independently editable/regeneratable, freely switchable in any order:
 1. **Angle** — takes `seedIdea`, generates a specific angle from one of 7 types (mistake, myth, lesson, hot take, before/after, step-by-step, beginner-vs-advanced). Button: "Try another angle type." Angle must be able to stand alone as a full post concept.
 2. **Hooks** — generates a set of hook candidates (default 5, "generate 15" option) using curiosity/emotional-tension/specific-outcome/audience-frustration patterns. User selects one as primary; others stay saved for reuse.
@@ -92,8 +108,10 @@ Tabs, all independently editable/regeneratable, freely switchable in any order:
 4. **Repurpose** — one click generates all three: video script (hook + beats + on-screen text cues + CTA, sized for Reel/TikTok), carousel outline (slide-by-slide), and an alt caption variant if platform tone should shift.
 5. **Review** — 4-item checklist (hook strength / CTA clear / save-worthy / stands alone as a single post) + free-text notes. Checking all 4 auto-advances `stage` to `reviewed`.
 
-### C. Idea Bank (secondary view, optional but recommended)
-A flat searchable/filterable list of all 30 ideas (filter by pillar, job, stage) for quick jump navigation without the calendar grid — useful once the board gets dense.
+### D. Idea Bank — folded into the Pool
+The filterable/searchable idea list described in section A *is* the Idea Bank — no separate screen needed. The Pool already serves flat search-and-jump; the Plan serves calendar placement. Two views, not three.
+
+**Responsive behavior**: even though phone *access* is a Phase 2 upgrade, build the responsive layout now while the components are fresh. On desktop-width screens, the Idea Detail Panel opens alongside the Pool or Plan (list/grid stays partially visible, context isn't lost). On phone-width screens, the panel opens full-screen with a clear back action, and back / jump-to-another-idea must always be one tap away, never buried.
 
 ## 5. Generation behavior (AI calls)
 Each of these is a distinct, independently triggerable generation action (not steps in a forced sequence):
@@ -113,8 +131,10 @@ All generation outputs land as editable text — never locked, never destructive
 - Motion: one deliberate reveal when the detail panel slides open; hover states are subtle border-glow, not scale/shadow bounce. Respect reduced-motion.
 
 ## 7. Non-negotiables
-- No forced linear wizard anywhere — every tab, every idea, every phase is jump-to-able at all times.
-- Board and Idea Detail Panel are both usable together (panel doesn't fully hide the board) so context is never lost.
+- No forced linear wizard anywhere — every idea, every tab, every phase (pool vs. plan) is jump-to-able at all times.
+- The Idea Pool is where ideas live and get developed by default — scheduling into the 30-Day Plan is an explicit, reversible action a user takes when ready, never an assumption baked into idea creation.
+- Pool/Plan and the Idea Detail Panel are both usable together (panel doesn't fully hide the list/grid behind it) so context is never lost.
 - All AI-generated content is editable and regeneration never destroys sibling tabs' content.
 - Works fully for one person with no collaborators, no external design/editing tools.
-- Data persists across sessions (this runs every Sunday, indefinitely).
+- Data persists across sessions locally in Phase 1; cross-device access is a planned Phase 2 upgrade (see storage section) — don't build the backend now, but don't hardcode assumptions that block it later.
+- Fully usable on a phone-width browser window from Phase 1 onward (even before Phase 2 makes it reachable from an actual phone) — Pool list, Plan grid, generator bar, and detail panel all need real responsive treatment, not just a shrunk desktop layout.
