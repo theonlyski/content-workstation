@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useBoardStore } from '../../store/boardStore';
 
 interface DayPickerModalProps {
@@ -10,10 +11,18 @@ export function DayPickerModal({ ideaId, onClose }: DayPickerModalProps) {
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const currentBoard = useBoardStore(state => state.currentBoard);
   const sendToPlan = useBoardStore(state => state.sendToPlan);
+  const backdropRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [onClose]);
 
   if (!currentBoard) return null;
 
-  // Find which days are already taken
   const scheduledDays = new Set(
     currentBoard.ideas
       .filter(i => i.day !== null && i.id !== ideaId)
@@ -26,13 +35,23 @@ export function DayPickerModal({ ideaId, onClose }: DayPickerModalProps) {
     onClose();
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+  const handleBackdropClick = (e: React.MouseEvent) => {
+    if (e.target === backdropRef.current) {
+      onClose();
+    }
+  };
+
+  return createPortal(
+    <div
+      ref={backdropRef}
+      onClick={handleBackdropClick}
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4"
+    >
       <div className="w-full max-w-md rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
         <h3 className="mb-4 font-mono text-sm uppercase tracking-wider text-[var(--color-accent)]">
           Send to Plan
         </h3>
-        
+
         <p className="mb-4 text-sm text-gray-400">
           Select a day (1-30) to schedule this idea:
         </p>
@@ -41,18 +60,16 @@ export function DayPickerModal({ ideaId, onClose }: DayPickerModalProps) {
           {Array.from({ length: 30 }, (_, i) => i + 1).map(day => {
             const isTaken = scheduledDays.has(day);
             const isSelected = selectedDay === day;
-            
+
             return (
               <button
                 key={day}
-                onClick={() => !isTaken && setSelectedDay(day)}
+                onClick={() => { if (!isTaken) setSelectedDay(day); }}
                 disabled={isTaken}
                 className="aspect-square rounded-sm border text-sm font-medium transition-all"
                 style={{
                   borderColor: isSelected
                     ? 'var(--color-accent)'
-                    : isTaken
-                    ? 'var(--color-border)'
                     : 'var(--color-border)',
                   backgroundColor: isSelected
                     ? 'var(--color-accent)'
@@ -96,6 +113,7 @@ export function DayPickerModal({ ideaId, onClose }: DayPickerModalProps) {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

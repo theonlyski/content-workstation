@@ -19,6 +19,7 @@ interface BoardState {
   addIdeaToPool: (idea: Idea) => Promise<void>;
   sendToPlan: (ideaId: string, day: number) => Promise<void>;
   removeFromPlan: (ideaId: string) => Promise<void>;
+  deleteIdea: (ideaId: string) => Promise<void>;
   
   // Spinoff action
   spinoffIdea: (parentIdeaId: string, angleText: string, angleType: string) => Promise<void>;
@@ -147,6 +148,18 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     });
 
     const updatedBoard = { ...currentBoard, ideas: updatedIdeas };
+    set({ currentBoard: updatedBoard });
+    await saveBoard(updatedBoard);
+  },
+
+  deleteIdea: async (ideaId: string) => {
+    const { currentBoard } = get();
+    if (!currentBoard) return;
+
+    const updatedBoard = {
+      ...currentBoard,
+      ideas: currentBoard.ideas.filter(i => i.id !== ideaId),
+    };
     set({ currentBoard: updatedBoard });
     await saveBoard(updatedBoard);
   },

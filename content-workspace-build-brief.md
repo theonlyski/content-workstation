@@ -46,6 +46,8 @@ Target monthly balance to display and warn against drift from: ~40% authority, ~
 type AngleCandidate = {
   text: string;
   angleType: 'mistake' | 'myth' | 'lesson' | 'hot_take' | 'before_after' | 'step_by_step' | 'beginner_vs_advanced';
+  kept: boolean;              // user has marked this one to develop further — see section 4/5
+  spawnedIdeaId: string | null; // set once "kept" has materialized this candidate into its own pool Idea
 };
 
 type Idea = {
@@ -98,6 +100,7 @@ This is where ideas are born and developed — no day assignment, and no pillar/
 - Filter/sort by pillar, job, or stage — this is the primary way to navigate when the pool gets large. Include an "unclassified" filter for freshly-captured ideas awaiting their first angle pass.
 - **Balance meter** (live bar chart of the pool's pillar/job mix vs target) — only counts classified ideas.
 - Click any card → opens the Idea Detail Panel (same panel used from the Plan view — see below).
+- **Multi-select on cards** (checkboxes, same pattern as the Angle tab): select several ideas at once and run **"Generate Hooks & Captions"** as a bulk action — each selected idea gets its default hook batch and a matching caption for its working angle in one pass, without opening each one individually. This is separate from opening a single idea to request more hook variations (the "generate 15" option) — bulk action gives you a fast first pass across many ideas; opening one idea lets you go deep on that one.
 - A "Send to Plan" action on each card (available at any stage once it has at least a selected angle, not gated to "reviewed") opens a day-picker and assigns that idea into the 30-Day Plan, setting `day`. This is the only place `day` gets set from null to a number.
 
 ### B. 30-Day Plan (calendar/scheduling view)
@@ -111,8 +114,12 @@ Purely a scheduling surface — no generation happens here directly (open the Id
 
 ### C. Idea Detail Panel (slide-over on desktop-width, full-screen on phone-width)
 Tabs, all independently editable/regeneratable, freely switchable in any order:
-1. **Angle** — one action, "Generate Angles": takes `seedIdea` and produces a batch of angle candidates (default ~6-8) spanning multiple angle types automatically (mistake, myth, lesson, hot take, before/after, step-by-step, beginner-vs-advanced) — the user does not pick a type. In the same call, the AI classifies `pillar` and `job` for the idea (`pillarSource`/`jobSource: 'ai'`) based on the raw idea and the angles generated; both remain manually editable. User picks one candidate as `selectedAngleIndex` to develop further (this idea's `angle` for hooks/caption/repurpose). Any other candidate can be **"Spin off as new idea"** — creates a fresh pool `Idea` with that angle pre-selected, `seedIdea` carried over, and `parentIdeaId` set, so a strong angle that isn't the primary pick doesn't get lost. "Generate more" produces another batch without discarding existing candidates.
-2. **Hooks** — generates a set of hook candidates (default 5, "generate 15" option) for the selected angle, using curiosity/emotional-tension/specific-outcome/audience-frustration patterns. User selects one as primary; others stay saved for reuse.
+1. **Angle** — one action, "Generate Angles": takes `seedIdea` and produces a batch of angle candidates (default ~6-8) spanning multiple angle types automatically — the user does not pick a type. In the same call, the AI classifies `pillar` and `job` for the idea (`pillarSource`/`jobSource: 'ai'`); both remain manually editable. **All generated candidates are permanent** — they are never deleted or discarded by a later action, and remain visible/reviewable on this tab indefinitely, even after some are kept and some aren't. "Generate more" appends another batch to the same list rather than replacing it.
+   - Candidates are shown with **checkboxes, not a single radio pick** — the user can select any number of angles they like across one or several passes (revisiting later is fine; nothing expires).
+   - **"Keep Selected"**: for each checked candidate, mark `kept: true`. The *first* kept candidate becomes this idea's own working angle (`selectedAngleIndex`); every *additional* kept candidate spins off into its own brand-new pool `Idea` (`parentIdeaId` set to this idea, `spawnedIdeaId` recorded back on the source candidate) — so "I liked 4 of these 8 angles" cleanly produces 4 developable ideas, not one.
+   - Un-kept candidates are not deleted either — just left unchecked, sitting there for a later revisit.
+
+2. **Hooks** — generates a set of hook candidates (default 5, "generate 15" option) for the idea's working angle, using curiosity/emotional-tension/specific-outcome/audience-frustration patterns. User selects one as primary; others stay saved for reuse, never deleted.
 3. **Caption** — generates a caption matched to the selected hook, written to make someone hit save (not just like). Editable inline.
 4. **Repurpose** — one click generates all three: video script (hook + beats + on-screen text cues + CTA, sized for Reel/TikTok), carousel outline (slide-by-slide), and an alt caption variant if platform tone should shift.
 5. **Review** — 4-item checklist (hook strength / CTA clear / save-worthy / stands alone as a single post) + free-text notes. Checking all 4 auto-advances `stage` to `reviewed`.
@@ -144,6 +151,7 @@ All generation outputs land as editable text — never locked, never destructive
 - **Capture is zero-friction and classification-free**: creating an idea requires only typing raw text and submitting — never a pillar, job, or angle-type selection. Pillar and job are always AI-inferred first, manually correctable second.
 - The Idea Pool is where ideas live and get developed by default — scheduling into the 30-Day Plan is an explicit, reversible action a user takes when ready, never an assumption baked into idea creation.
 - Pool/Plan and the Idea Detail Panel are both usable together (panel doesn't fully hide the list/grid behind it) so context is never lost.
+- **Nothing generated is ever deleted automatically**: angle candidates, hook candidates, and past generations stay retrievable even after something else is selected/kept — regeneration adds, it never silently replaces history.
 - All AI-generated content is editable and regeneration never destroys sibling tabs' content.
 - Works fully for one person with no collaborators, no external design/editing tools.
 - Data persists across sessions locally in Phase 1; cross-device access is a planned Phase 2 upgrade (see storage section) — don't build the backend now, but don't hardcode assumptions that block it later.

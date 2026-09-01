@@ -12,6 +12,7 @@ export function IdeaTile({ idea, context }: IdeaTileProps) {
   const [showDayPicker, setShowDayPicker] = useState(false);
   const selectIdea = useBoardStore(state => state.selectIdea);
   const removeFromPlan = useBoardStore(state => state.removeFromPlan);
+  const deleteIdea = useBoardStore(state => state.deleteIdea);
   
   const isUnclassified = idea.pillar === null;
   const pillarConfig = idea.pillar ? PILLAR_CONFIG[idea.pillar] : null;
@@ -113,12 +114,23 @@ export function IdeaTile({ idea, context }: IdeaTileProps) {
                   e.stopPropagation();
                   removeFromPlan(idea.id);
                 }}
-                className="h-4 w-4 rounded-sm border border-red-500/50 bg-red-500/20 text-[8px] text-red-400 hover:bg-red-500/40"
-                title="Remove from Plan"
+                className="h-4 w-4 rounded-sm border border-amber-500/50 bg-amber-500/20 text-[8px] text-amber-400 hover:bg-amber-500/40"
+                title="Send back to Pool"
               >
-                ×
+                ←
               </button>
             )}
+            <button
+              data-action="delete"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (confirm('Delete this idea?')) deleteIdea(idea.id);
+              }}
+              className="h-4 w-4 rounded-sm border border-red-500/50 bg-red-500/20 text-[8px] text-red-400 hover:bg-red-500/40"
+              title="Delete idea"
+            >
+              ×
+            </button>
           </div>
         )}
       </div>

@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { PILLAR_CONFIG, JOB_CONFIG, ANGLE_TYPES, type Idea, type Pillar, type Job } from '../../types';
 import { useBoardStore } from '../../store/boardStore';
 import { generateAnglesAndClassify, generateHooks, generateCaption, generateRepurposed } from '../../lib/ai';
@@ -21,6 +22,7 @@ const TABS: Tab[] = [
 export function IdeaDetailPanel() {
   const [activeTab, setActiveTab] = useState<TabId>('angle');
   const [isGenerating, setIsGenerating] = useState<string | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   const currentBoard = useBoardStore(state => state.currentBoard);
   const selectedIdeaId = useBoardStore(state => state.selectedIdeaId);
@@ -28,10 +30,29 @@ export function IdeaDetailPanel() {
   const selectIdea = useBoardStore(state => state.selectIdea);
   const spinoffIdea = useBoardStore(state => state.spinoffIdea);
 
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') selectIdea(null);
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [selectIdea]);
+
   if (!currentBoard || !selectedIdeaId) return null;
 
   const idea = currentBoard.ideas.find(i => i.id === selectedIdeaId);
   if (!idea) return null;
+
+  // Safety: ensure new fields exist (migration for old data)
+  if (!idea.angleCandidates) idea.angleCandidates = [];
+  if (idea.selectedAngleIndex === undefined) idea.selectedAngleIndex = null;
+  if (!idea.hooks) idea.hooks = [];
+  if (idea.selectedHookIndex === undefined) idea.selectedHookIndex = null;
+  if (!idea.repurposed) idea.repurposed = { videoScript: '', carouselOutline: '', altCaption: '' };
+  if (!idea.review) idea.review = { hookStrength: false, ctaClear: false, saveWorthy: false, standsAlone: false };
+  if (idea.parentIdeaId === undefined) idea.parentIdeaId = null;
+  if (!idea.pillarSource) idea.pillarSource = 'ai';
+  if (!idea.jobSource) idea.jobSource = 'ai';
 
   const isUnclassified = idea.pillar === null;
   const pillarConfig = idea.pillar ? PILLAR_CONFIG[idea.pillar] : null;
@@ -60,10 +81,15 @@ export function IdeaDetailPanel() {
   };
 
   const handleSelectAngle = (index: number) => {
-    updateIdea(idea.id, {
-      selectedAngleIndex: index,
-      stage: 'angled',
-    });
+    // Toggle off if clicking the already-selected angle
+    if (idea.selectedAngleIndex === index) {
+      updateIdea(idea.id, { selectedAngleIndex: null });
+    } else {
+      updateIdea(idea.id, {
+        selectedAngleIndex: index,
+        stage: 'angled',
+      });
+    }
   };
 
   const handleSpinoff = async (angleIndex: number) => {
@@ -151,8 +177,12 @@ export function IdeaDetailPanel() {
     });
   };
 
-  return (
-    <div className="animate-slide-in fixed right-0 top-0 z-40 flex h-full w-full max-w-2xl flex-col border-l border-[var(--color-border)] bg-[var(--color-base)] shadow-2xl lg:max-w-3xl">
+  return createPortal(
+    <div
+      onClick={(e) => { if (e.target === e.currentTarget) selectIdea(null); }}
+      className="fixed inset-0 z-40 flex justify-end bg-black/50"
+    >
+    <div ref={panelRef} className="animate-slide-in flex h-full w-full max-w-2xl flex-col border-l border-[var(--color-border)] bg-[var(--color-base)] shadow-2xl lg:max-w-3xl">
       {/* Header */}
       <div className="border-b border-[var(--color-border)] p-4">
         <div className="mb-2 flex items-center justify-between">
@@ -349,14 +379,21 @@ export function IdeaDetailPanel() {
                         className="flex-1 resize-none bg-transparent text-sm text-gray-200 focus:outline-none"
                       />
                       <button
-                        onClick={() => updateIdea(idea.id, { selectedHookIndex: idx })}
+                        onClick={() => {
+                          // Toggle off if clicking the already-selected hook
+                          if (idea.selectedHookIndex === idx) {
+                            updateIdea(idea.id, { selectedHookIndex: null });
+                          } else {
+                            updateIdea(idea.id, { selectedHookIndex: idx });
+                          }
+                        }}
                         className="rounded-sm border px-2 py-1 text-xs transition-colors"
                         style={{
                           borderColor: idea.selectedHookIndex === idx ? 'var(--color-accent)' : 'var(--color-border)',
                           color: idea.selectedHookIndex === idx ? 'var(--color-accent)' : 'var(--color-text)',
                         }}
                       >
-                        {idea.selectedHookIndex === idx ? 'Selected' : 'Select'}
+                        {idea.selectedHookIndex === idx ? '✓ Selected' : 'Select'}
                       </button>
                     </div>
                     <div className="text-xs text-gray-500">{hook.style}</div>
@@ -476,5 +513,7 @@ export function IdeaDetailPanel() {
         )}
       </div>
     </div>
+    </div>,
+    document.body
   );
 }
