@@ -89,7 +89,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Initialize OpenAI client
   const client = new OpenAI({
     apiKey,
-    baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    baseURL: 'https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1',
   });
 
   const MODEL = 'qwen3.8-max';
@@ -110,9 +110,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json(result);
   } catch (error) {
     console.error('AI generation error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorDetails = error instanceof Error && 'cause' in error ? String(error.cause) : '';
     return res.status(500).json({ 
       error: 'AI generation failed',
-      details: error instanceof Error ? error.message : 'Unknown error',
+      details: errorMessage,
+      cause: errorDetails,
     });
   }
 }
