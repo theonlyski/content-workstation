@@ -115,17 +115,31 @@ export function IdeaDetailPanel() {
     if (!selectedAngle) return;
     setIsGenerating('hook_caption');
     try {
-      // Generate a single hook+caption piece
+      // Generate hooks first (non-streaming)
       const hooks = await generateHooks(idea.seedIdea, selectedAngle.text, 1);
       if (hooks.length > 0) {
         const hook = hooks[0];
-        const caption = await generateCaption(idea.seedIdea, selectedAngle.text, hook.text);
+        
+        // Save the hook immediately
         await updateIdea(idea.id, {
           hooks: [hook],
           selectedHookIndex: 0,
-          caption,
+          caption: '', // Start with empty caption, will stream in
           stage: 'captioned',
         });
+
+        // Generate caption with streaming
+        let captionText = '';
+        await generateCaption(
+          idea.seedIdea,
+          selectedAngle.text,
+          hook.text,
+          (chunk) => {
+            captionText += chunk;
+            // Update caption progressively
+            updateIdea(idea.id, { caption: captionText });
+          }
+        );
       }
     } catch (error) {
       console.error('Failed to generate hook+caption:', error);

@@ -25,7 +25,7 @@ function checkRateLimit(ip: string): { allowed: boolean; remaining: number; rese
 }
 
 // Valid action types
-type GenerateAction = 'angles' | 'hooks' | 'caption' | 'repurpose';
+type GenerateAction = 'angles' | 'hooks' | 'caption' | 'repurpose' | 'repurpose_video' | 'repurpose_carousel' | 'repurpose_altcaption';
 
 interface GenerateRequestBody {
   action: GenerateAction;
@@ -34,6 +34,7 @@ interface GenerateRequestBody {
   hook?: string;
   caption?: string;
   count?: number;
+  stream?: boolean;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -74,7 +75,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: 'Missing action in request body' });
   }
 
-  const { action, seedIdea, angle, hook, caption, count = 6 } = body;
+  const { action, seedIdea, angle, hook, caption, count = 6, stream = false } = body;
 
   // Validate required fields per action
   if (action === 'angles' && !seedIdea) {
@@ -88,6 +89,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   if (action === 'repurpose' && (!seedIdea || !angle || !hook || !caption)) {
     return res.status(400).json({ error: 'seedIdea, angle, hook, and caption are required for repurpose action' });
+  }
+  if (action === 'repurpose_video' && (!seedIdea || !angle || !hook || !caption)) {
+    return res.status(400).json({ error: 'seedIdea, angle, hook, and caption are required for repurpose_video action' });
+  }
+  if (action === 'repurpose_carousel' && (!seedIdea || !angle || !hook || !caption)) {
+    return res.status(400).json({ error: 'seedIdea, angle, hook, and caption are required for repurpose_carousel action' });
+  }
+  if (action === 'repurpose_altcaption' && (!seedIdea || !angle || !hook || !caption)) {
+    return res.status(400).json({ error: 'seedIdea, angle, hook, and caption are required for repurpose_altcaption action' });
   }
 
   // Initialize OpenAI client
@@ -106,9 +116,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     } else if (action === 'hooks') {
       result = await generateHooks(client, MODEL, seedIdea!, angle!, count);
     } else if (action === 'caption') {
+      // Streaming support for caption
+      if (stream) {
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+
+        const streamResult = await generateCaptionStream(client, MODEL, seedIdea!, angle!, hook!, res);
+        return streamResult;
+      }
       result = await generateCaption(client, MODEL, seedIdea!, angle!, hook!);
     } else if (action === 'repurpose') {
       result = await generateRepurposed(client, MODEL, seedIdea!, angle!, hook!, caption!);
+    } else if (action === 'repurpose_video') {
+      result = await generateVideoScript(client, MODEL, seedIdea!, angle!, hook!, caption!);
+    } else if (action === 'repurpose_carousel') {
+      result = await generateCarouselOutline(client, MODEL, seedIdea!, angle!, hook!, caption!);
+    } else if (action === 'repurpose_altcaption') {
+      result = await generateAltCaption(client, MODEL, seedIdea!, angle!, hook!, caption!);
     } else {
       return res.status(400).json({ error: `Unknown action: ${action}` });
     }
@@ -140,52 +165,21 @@ async function generateAngles(
     messages: [
       {
         role: 'system',
-        content: `You are a content strategist for a creator in internal arts and embodied living. Given a raw content idea, you will:
+        content: `Content strategist for internal arts/embodied living creator. Generate ${count} angle candidates (spread across angle types) and classify pillar+job. Return JSON only, no preamble.
 
-1. Generate ${count} different angle candidates, each strong enough to stand alone as a full social media post. Spread them across different angle types for variety.
-2. Classify the idea into one of 4 pillars based on its content.
-3. Classify the idea into one of 4 jobs based on what the post should achieve.
+Pillars: internal_power (taichi/qigong), body_intelligence (nervous system/breathwork), natural_energy (fermentation/food), practice_life (daily practice/philosophy)
+Jobs: growth (shareable), authority (teaches), engagement (resonates), soft_sales (invites to offer)
+Angle types: mistake, myth, lesson, hot_take, before_after, step_by_step, beginner_vs_advanced
 
-Pillars:
-- internal_power: taichi, qigong, zhanzhuang, internal martial arts
-- body_intelligence: nervous system regulation, breathwork, somatic practices
-- natural_energy: natural fermentation, tempeh, living foods, food as medicine
-- practice_life: daily practice, embodied philosophy, integration of practice into life
-
-Jobs:
-- growth: reach new people, highly shareable/save-able, low friction
-- authority: build trust/expertise, teaches something real
-- engagement: spark comments/saves/relate, emotionally resonant
-- soft_sales: invite toward offer without hard pitching
-
-Angle types:
-- mistake: common error people make
-- myth: widely believed but wrong
-- lesson: something learned the hard way
-- hot_take: contrarian opinion
-- before_after: transformation story
-- step_by_step: actionable process
-- beginner_vs_advanced: how approach differs by level
-
-Each angle must be specific, concrete, and strong enough to hook attention in 3 seconds.`,
+JSON format: { "angles": [{ "text": "...", "angleType": "..." }], "pillar": "...", "job": "..." }`,
       },
       {
         role: 'user',
-        content: `Raw idea: "${seedIdea}"
-
-Generate ${count} angle candidates and classify this idea. Respond in this exact JSON format:
-{
-  "angles": [
-    { "text": "angle text here", "angleType": "one_of_the_7_types" },
-    ...
-  ],
-  "pillar": "one_of_the_4_pillars",
-  "job": "one_of_the_4_jobs"
-}`,
+        content: `Raw idea: "${seedIdea}"`,
       },
     ],
     temperature: 0.85,
-    max_tokens: 1500,
+    max_tokens: 1200,
   });
 
   const response = completion.choices[0]?.message?.content?.trim() || '{}';
@@ -225,51 +219,20 @@ async function generateHooks(
   angle: string,
   count: number
 ) {
-  const styles = [
-    'curiosity-gap',
-    'emotional-tension',
-    'specific-outcome',
-    'audience-frustration',
-    'contrarian',
-    'personal-story',
-    'surprising-stat',
-    'question',
-    'bold-claim',
-    'relatable-struggle',
-  ];
-
   const completion = await client.chat.completions.create({
     model,
     messages: [
       {
         role: 'system',
-        content: `You are a hook specialist for short-form video. Generate attention-grabbing hooks that make people stop scrolling.
-
-Each hook should:
-- Be under 10 words
-- Create immediate curiosity or tension
-- Make the viewer need to watch
-- Be specific, not generic`,
+        content: `Generate ${count} attention-grabbing hooks (under 10 words each) for short-form video. Use varied styles: curiosity-gap, emotional-tension, specific-outcome, audience-frustration, contrarian, bold-claim. Return JSON only: { "hooks": [{ "text": "...", "style": "..." }] }`,
       },
       {
         role: 'user',
-        content: `Create ${count} hooks for this content:
-Idea: "${seedIdea}"
-Angle: "${angle}"
-
-Respond in this exact JSON format:
-{
-  "hooks": [
-    { "text": "hook text", "style": "style_name" },
-    ...
-  ]
-}
-
-Use these styles: ${styles.join(', ')}`,
+        content: `Idea: "${seedIdea}"\nAngle: "${angle}"`,
       },
     ],
     temperature: 0.9,
-    max_tokens: 800,
+    max_tokens: 400,
   });
 
   const response = completion.choices[0]?.message?.content?.trim() || '{}';
@@ -389,4 +352,123 @@ Respond in this exact JSON format:
       altCaption: '',
     };
   }
+}
+
+// Individual repurpose functions for concurrent execution
+async function generateVideoScript(
+  client: OpenAI,
+  model: string,
+  seedIdea: string,
+  angle: string,
+  hook: string,
+  caption: string
+) {
+  const completion = await client.chat.completions.create({
+    model,
+    messages: [
+      {
+        role: 'system',
+        content: `You are a video script writer. Create a 30-60 second video script with: hook (first 3 seconds), 3-5 beats (key points), CTA (clear next step), and on-screen text cues in [brackets]. Return ONLY the script text, no preamble.`,
+      },
+      {
+        role: 'user',
+        content: `Write a video script for:\nIdea: "${seedIdea}"\nAngle: "${angle}"\nHook: "${hook}"\nCaption: "${caption}"`,
+      },
+    ],
+    temperature: 0.7,
+    max_tokens: 500,
+  });
+
+  return { videoScript: completion.choices[0]?.message?.content?.trim() || '' };
+}
+
+async function generateCarouselOutline(
+  client: OpenAI,
+  model: string,
+  seedIdea: string,
+  angle: string,
+  hook: string,
+  caption: string
+) {
+  const completion = await client.chat.completions.create({
+    model,
+    messages: [
+      {
+        role: 'system',
+        content: `You are a carousel outline writer. Create a slide-by-slide outline: Slide 1 = hook/title, Slides 2-6 = one point per slide, Slide 7 = CTA/summary. Return ONLY the outline text, no preamble.`,
+      },
+      {
+        role: 'user',
+        content: `Write a carousel outline for:\nIdea: "${seedIdea}"\nAngle: "${angle}"\nHook: "${hook}"\nCaption: "${caption}"`,
+      },
+    ],
+    temperature: 0.7,
+    max_tokens: 400,
+  });
+
+  return { carouselOutline: completion.choices[0]?.message?.content?.trim() || '' };
+}
+
+async function generateAltCaption(
+  client: OpenAI,
+  model: string,
+  seedIdea: string,
+  angle: string,
+  hook: string,
+  caption: string
+) {
+  const completion = await client.chat.completions.create({
+    model,
+    messages: [
+      {
+        role: 'system',
+        content: `You are a caption writer. Write a shorter alt caption variant for a different platform tone — same core message, different delivery. Return ONLY the caption text, no preamble.`,
+      },
+      {
+        role: 'user',
+        content: `Write an alt caption for:\nIdea: "${seedIdea}"\nAngle: "${angle}"\nHook: "${hook}"\nOriginal caption: "${caption}"`,
+      },
+    ],
+    temperature: 0.7,
+    max_tokens: 300,
+  });
+
+  return { altCaption: completion.choices[0]?.message?.content?.trim() || '' };
+}
+
+// Streaming caption generation
+async function generateCaptionStream(
+  client: OpenAI,
+  model: string,
+  seedIdea: string,
+  angle: string,
+  hook: string,
+  res: VercelResponse
+) {
+  const stream = await client.chat.completions.create({
+    model,
+    messages: [
+      {
+        role: 'system',
+        content: `Write a caption (150-250 words) that makes people hit SAVE. Start with the hook, deliver value, end with CTA. Return ONLY the caption text, no preamble.`,
+      },
+      {
+        role: 'user',
+        content: `Hook: "${hook}"\nIdea: "${seedIdea}"\nAngle: "${angle}"`,
+      },
+    ],
+    temperature: 0.75,
+    max_tokens: 600,
+    stream: true,
+  });
+
+  for await (const chunk of stream) {
+    const content = chunk.choices[0]?.delta?.content || '';
+    if (content) {
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`);
+    }
+  }
+
+  res.write('data: [DONE]\n\n');
+  res.end();
 }
