@@ -21,7 +21,6 @@ const TABS: Tab[] = [
 export function IdeaDetailPanel() {
   const [activeTab, setActiveTab] = useState<TabId>('angle');
   const [isGenerating, setIsGenerating] = useState<string | null>(null);
-  const [checkedAngles, setCheckedAngles] = useState<Set<number>>(new Set());
   const panelRef = useRef<HTMLDivElement>(null);
 
   const currentBoard = useBoardStore(state => state.currentBoard);
@@ -90,46 +89,10 @@ export function IdeaDetailPanel() {
     }
   };
 
-  const handleToggleAngleCheck = (index: number) => {
-    const newChecked = new Set(checkedAngles);
-    if (newChecked.has(index)) {
-      newChecked.delete(index);
-    } else {
-      newChecked.add(index);
-    }
-    setCheckedAngles(newChecked);
-  };
-
-  const handleKeepSelected = async () => {
-    if (checkedAngles.size === 0) return;
-    
-    const indices = Array.from(checkedAngles).sort((a, b) => a - b);
-    const firstIndex = indices[0];
-    
-    // Update candidates with kept status
-    const updatedCandidates = idea.angleCandidates.map((c, i) => ({
-      ...c,
-      kept: checkedAngles.has(i) ? true : c.kept,
-    }));
-
-    // First kept becomes selectedAngleIndex
-    // Additional kept ones spin off into new ideas
-    const updates: Partial<Idea> = {
-      angleCandidates: updatedCandidates,
-      selectedAngleIndex: firstIndex,
-    };
-
-    await updateIdea(idea.id, updates);
-
-    // Spin off additional kept candidates
-    for (let i = 1; i < indices.length; i++) {
-      const candidate = idea.angleCandidates[indices[i]];
-      if (candidate) {
-        await spinoffIdea(idea.id, candidate.text, candidate.angleType);
-      }
-    }
-
-    setCheckedAngles(new Set());
+  const handleSpinoff = async (angleIndex: number) => {
+    const candidate = idea.angleCandidates[angleIndex];
+    if (!candidate) return;
+    await spinoffIdea(idea.id, candidate.text, candidate.angleType);
   };
 
   const handleGenerateHookCaption = async () => {
@@ -316,38 +279,29 @@ export function IdeaDetailPanel() {
 
             {idea.angleCandidates.length > 0 && (
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="text-xs text-gray-400">
-                    {idea.angleCandidates.length} angle candidates — check any to keep
-                  </div>
-                  {checkedAngles.size > 0 && (
-                    <button
-                      onClick={handleKeepSelected}
-                      className="rounded-sm border border-green-500 bg-green-500/20 px-3 py-1 text-xs text-green-400 hover:bg-green-500/30"
-                    >
-                      Keep {checkedAngles.size} selected
-                    </button>
-                  )}
+                <div className="text-xs text-gray-400">
+                  {idea.angleCandidates.length} angle candidates — select one to develop, or spin off others as new ideas
                 </div>
                 {idea.angleCandidates.map((candidate, idx) => {
-                  const isChecked = checkedAngles.has(idx);
+                  const isSelected = idea.selectedAngleIndex === idx;
                   const angleTypeLabel = ANGLE_TYPES.find(t => t.value === candidate.angleType)?.label || candidate.angleType;
-                  
+
                   return (
                     <div
                       key={idx}
                       className="rounded-sm border p-3 transition-all"
                       style={{
-                        borderColor: candidate.kept ? 'var(--color-accent)' : isChecked ? 'var(--color-accent)' : 'var(--color-border)',
-                        backgroundColor: candidate.kept ? 'rgba(6, 182, 212, 0.1)' : isChecked ? 'rgba(6, 182, 212, 0.05)' : 'var(--color-surface)',
+                        borderColor: isSelected ? 'var(--color-accent)' : 'var(--color-border)',
+                        backgroundColor: isSelected ? 'rgba(6, 182, 212, 0.05)' : 'var(--color-surface)',
                       }}
                     >
                       <div className="mb-2 flex items-start gap-2">
                         <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => handleToggleAngleCheck(idx)}
-                          className="mt-1 h-4 w-4 rounded border-[var(--color-border)] bg-[var(--color-base)] text-[var(--color-accent)] focus:ring-[var(--color-accent)]"
+                          type="radio"
+                          name="angle-select"
+                          checked={isSelected}
+                          onChange={() => handleSelectAngle(idx)}
+                          className="mt-1 h-4 w-4 border-[var(--color-border)] bg-[var(--color-base)] text-[var(--color-accent)] focus:ring-[var(--color-accent)]"
                         />
                         <div className="flex-1">
                           <div className="mb-1 text-xs text-gray-500">{angleTypeLabel}</div>
@@ -356,6 +310,25 @@ export function IdeaDetailPanel() {
                             <div className="mt-1 text-xs text-[var(--color-accent)]">✓ Kept</div>
                           )}
                         </div>
+                      </div>
+                      <div className="ml-6 flex gap-2">
+                        <button
+                          onClick={() => handleSelectAngle(idx)}
+                          className="rounded-sm border px-2 py-1 text-xs transition-colors"
+                          style={{
+                            borderColor: isSelected ? 'var(--color-accent)' : 'var(--color-border)',
+                            color: isSelected ? 'var(--color-accent)' : 'var(--color-text)',
+                            backgroundColor: isSelected ? 'rgba(6, 182, 212, 0.1)' : 'transparent',
+                          }}
+                        >
+                          {isSelected ? '✓ Selected' : 'Select'}
+                        </button>
+                        <button
+                          onClick={() => handleSpinoff(idx)}
+                          className="rounded-sm border border-[var(--color-border)] px-2 py-1 text-xs text-gray-400 transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+                        >
+                          Spin off as new idea
+                        </button>
                       </div>
                     </div>
                   );
