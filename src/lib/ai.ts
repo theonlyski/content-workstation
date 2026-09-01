@@ -8,7 +8,7 @@ const isDev = import.meta.env.DEV;
 const client = isDev
   ? new OpenAI({
       apiKey: import.meta.env.VITE_DASHSCOPE_API_KEY || '',
-      baseURL: 'https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1',
+      baseURL: 'http://localhost:5173/api/ai',
       dangerouslyAllowBrowser: true,
     })
   : null;
