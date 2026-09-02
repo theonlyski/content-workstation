@@ -12,12 +12,12 @@ export function BalanceMeter({ context }: BalanceMeterProps) {
   const { pillarCounts, jobCounts, total } = stats;
 
   const pillarPercentages = Object.entries(pillarCounts).reduce((acc, [key, count]) => {
-    acc[key as Pillar] = total > 0 ? (count / total) * 100 : 0;
+    acc[key as Pillar] = total > 0 ? ((count as number) / total) * 100 : 0;
     return acc;
   }, {} as Record<Pillar, number>);
 
   const jobPercentages = Object.entries(jobCounts).reduce((acc, [key, count]) => {
-    acc[key as Job] = total > 0 ? (count / total) * 100 : 0;
+    acc[key as Job] = total > 0 ? ((count as number) / total) * 100 : 0;
     return acc;
   }, {} as Record<Job, number>);
 
