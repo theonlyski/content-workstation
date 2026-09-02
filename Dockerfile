@@ -11,7 +11,8 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 COPY package.json pnpm-lock.yaml ./
 
 # Install all dependencies (including dev)
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --ignore-scripts
+RUN pnpm rebuild better-sqlite3 esbuild
 
 # Copy source files
 COPY . .
@@ -31,9 +32,7 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 COPY package.json pnpm-lock.yaml ./
 
 # Install production dependencies only
-RUN pnpm install --frozen-lockfile --prod
-
-# Rebuild better-sqlite3 for production
+RUN pnpm install --frozen-lockfile --prod --ignore-scripts
 RUN pnpm rebuild better-sqlite3
 
 # Copy built frontend from builder
