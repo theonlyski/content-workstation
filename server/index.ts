@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
@@ -24,7 +25,7 @@ const clientDistPath = path.join(__dirname, '../dist');
 app.use(express.static(clientDistPath));
 
 // SPA fallback - serve index.html for all non-API routes
-app.get('*', (req, res) => {
+app.get('/{*splat}', (req, res) => {
   // Don't serve index.html for API routes
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({ error: 'API endpoint not found' });
