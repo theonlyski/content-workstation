@@ -1,0 +1,18 @@
+services:
+  app:
+    build: .
+    container_name: content-workstation
+    ports:
+      - "127.0.0.1:3010:3010"
+    volumes:
+      - sqlite-data:/app/data
+    environment:
+      - NODE_ENV=production
+      - PORT=3010
+      - HOST=0.0.0.0
+      - DB_PATH=/app/data/content.db
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
+    restart: unless-stopped
+
+volumes:
+  sqlite-data:

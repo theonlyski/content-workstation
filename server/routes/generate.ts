@@ -1,10 +1,12 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { Router, Request, Response } from 'express';
 import OpenAI from 'openai';
 
-// Rate limiting: simple in-memory store (per-instance, resets on cold start)
+const router = Router();
+
+// Rate limiting: simple in-memory store
 const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
-const RATE_LIMIT_MAX_REQUESTS = 20; // 20 requests per minute per IP
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const RATE_LIMIT_MAX_REQUESTS = 20;
 
 function checkRateLimit(ip: string): { allowed: boolean; remaining: number; resetAt: number } {
   const now = Date.now();
@@ -24,7 +26,6 @@ function checkRateLimit(ip: string): { allowed: boolean; remaining: number; rese
   return { allowed: true, remaining: RATE_LIMIT_MAX_REQUESTS - entry.count, resetAt: entry.resetAt };
 }
 
-// Valid action types
 type GenerateAction = 'angles' | 'hooks' | 'caption' | 'repurpose' | 'repurpose_video' | 'repurpose_carousel' | 'repurpose_altcaption';
 
 interface GenerateRequestBody {
@@ -37,18 +38,12 @@ interface GenerateRequestBody {
   stream?: boolean;
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Only allow POST
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
-  // Get client IP
-  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() 
-    || req.headers['x-real-ip'] as string 
+router.post('/', async (req: Request, res: Response) => {
+  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+    || req.headers['x-real-ip'] as string
+    || req.socket.remoteAddress
     || 'unknown';
 
-  // Check rate limit
   const rateLimit = checkRateLimit(ip);
   res.setHeader('X-RateLimit-Remaining', String(rateLimit.remaining));
   res.setHeader('X-RateLimit-Reset', String(rateLimit.resetAt));
@@ -56,20 +51,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!rateLimit.allowed) {
     const retryAfter = Math.ceil((rateLimit.resetAt - Date.now()) / 1000);
     res.setHeader('Retry-After', String(retryAfter));
-    return res.status(429).json({ 
+    return res.status(429).json({
       error: 'Rate limit exceeded. Please try again later.',
       retryAfter,
     });
   }
 
-  // Check API key
   const apiKey = process.env.DASHSCOPE_API_KEY;
   if (!apiKey) {
     console.error('DASHSCOPE_API_KEY not configured');
     return res.status(500).json({ error: 'AI service not configured' });
   }
 
-  // Parse request body
   const body = req.body as GenerateRequestBody;
   if (!body || !body.action) {
     return res.status(400).json({ error: 'Missing action in request body' });
@@ -77,7 +70,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const { action, seedIdea, angle, hook, caption, count = 6, stream = false } = body;
 
-  // Validate required fields per action
   if (action === 'angles' && !seedIdea) {
     return res.status(400).json({ error: 'seedIdea is required for angles action' });
   }
@@ -87,20 +79,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (action === 'caption' && (!seedIdea || !angle || !hook)) {
     return res.status(400).json({ error: 'seedIdea, angle, and hook are required for caption action' });
   }
-  if (action === 'repurpose' && (!seedIdea || !angle || !hook || !caption)) {
-    return res.status(400).json({ error: 'seedIdea, angle, hook, and caption are required for repurpose action' });
-  }
-  if (action === 'repurpose_video' && (!seedIdea || !angle || !hook || !caption)) {
-    return res.status(400).json({ error: 'seedIdea, angle, hook, and caption are required for repurpose_video action' });
-  }
-  if (action === 'repurpose_carousel' && (!seedIdea || !angle || !hook || !caption)) {
-    return res.status(400).json({ error: 'seedIdea, angle, hook, and caption are required for repurpose_carousel action' });
-  }
-  if (action === 'repurpose_altcaption' && (!seedIdea || !angle || !hook || !caption)) {
-    return res.status(400).json({ error: 'seedIdea, angle, hook, and caption are required for repurpose_altcaption action' });
+  if ((action === 'repurpose' || action === 'repurpose_video' || action === 'repurpose_carousel' || action === 'repurpose_altcaption') && (!seedIdea || !angle || !hook || !caption)) {
+    return res.status(400).json({ error: 'seedIdea, angle, hook, and caption are required' });
   }
 
-  // Initialize OpenAI client
   const client = new OpenAI({
     apiKey,
     baseURL: 'https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1',
@@ -116,14 +98,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     } else if (action === 'hooks') {
       result = await generateHooks(client, MODEL, seedIdea!, angle!, count);
     } else if (action === 'caption') {
-      // Streaming support for caption
       if (stream) {
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
-
-        const streamResult = await generateCaptionStream(client, MODEL, seedIdea!, angle!, hook!, res);
-        return streamResult;
+        await generateCaptionStream(client, MODEL, seedIdea!, angle!, hook!, res);
+        return;
       }
       result = await generateCaption(client, MODEL, seedIdea!, angle!, hook!);
     } else if (action === 'repurpose') {
@@ -142,22 +122,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (error) {
     console.error('AI generation error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    const errorDetails = error instanceof Error && 'cause' in error ? String(error.cause) : '';
-    return res.status(500).json({ 
+    return res.status(500).json({
       error: 'AI generation failed',
       details: errorMessage,
-      cause: errorDetails,
     });
   }
-}
+});
 
-// Angle generation with classification
-async function generateAngles(
-  client: OpenAI,
-  model: string,
-  seedIdea: string,
-  count: number
-) {
+async function generateAngles(client: OpenAI, model: string, seedIdea: string, count: number) {
   const ALL_ANGLE_TYPES = ['mistake', 'myth', 'lesson', 'hot_take', 'before_after', 'step_by_step', 'beginner_vs_advanced'];
 
   const completion = await client.chat.completions.create({
@@ -173,10 +145,7 @@ Angle types: mistake, myth, lesson, hot_take, before_after, step_by_step, beginn
 
 JSON format: { "angles": [{ "text": "...", "angleType": "..." }], "pillar": "...", "job": "..." }`,
       },
-      {
-        role: 'user',
-        content: `Raw idea: "${seedIdea}"`,
-      },
+      { role: 'user', content: `Raw idea: "${seedIdea}"` },
     ],
     temperature: 0.85,
     max_tokens: 1200,
@@ -189,10 +158,7 @@ JSON format: { "angles": [{ "text": "...", "angleType": "..." }], "pillar": "...
     const angles = Array.isArray(parsed.angles)
       ? parsed.angles
           .filter((a: { angleType: string }) => ALL_ANGLE_TYPES.includes(a.angleType))
-          .map((a: { text: string; angleType: string }) => ({
-            text: a.text || '',
-            angleType: a.angleType,
-          }))
+          .map((a: { text: string; angleType: string }) => ({ text: a.text || '', angleType: a.angleType }))
       : [];
 
     const validPillars = ['internal_power', 'body_intelligence', 'natural_energy', 'practice_life'];
@@ -203,22 +169,11 @@ JSON format: { "angles": [{ "text": "...", "angleType": "..." }], "pillar": "...
 
     return { angles, pillar, job };
   } catch {
-    return {
-      angles: [{ text: seedIdea, angleType: 'lesson' }],
-      pillar: 'internal_power',
-      job: 'authority',
-    };
+    return { angles: [{ text: seedIdea, angleType: 'lesson' }], pillar: 'internal_power', job: 'authority' };
   }
 }
 
-// Hooks generation
-async function generateHooks(
-  client: OpenAI,
-  model: string,
-  seedIdea: string,
-  angle: string,
-  count: number
-) {
+async function generateHooks(client: OpenAI, model: string, seedIdea: string, angle: string, count: number) {
   const completion = await client.chat.completions.create({
     model,
     messages: [
@@ -226,17 +181,13 @@ async function generateHooks(
         role: 'system',
         content: `Generate ${count} attention-grabbing hooks (under 10 words each) for short-form video. Use varied styles: curiosity-gap, emotional-tension, specific-outcome, audience-frustration, contrarian, bold-claim. Return JSON only: { "hooks": [{ "text": "...", "style": "..." }] }`,
       },
-      {
-        role: 'user',
-        content: `Idea: "${seedIdea}"\nAngle: "${angle}"`,
-      },
+      { role: 'user', content: `Idea: "${seedIdea}"\nAngle: "${angle}"` },
     ],
     temperature: 0.9,
     max_tokens: 400,
   });
 
   const response = completion.choices[0]?.message?.content?.trim() || '{}';
-
   try {
     const parsed = JSON.parse(response);
     return { hooks: Array.isArray(parsed.hooks) ? parsed.hooks : [] };
@@ -245,38 +196,15 @@ async function generateHooks(
   }
 }
 
-// Caption generation
-async function generateCaption(
-  client: OpenAI,
-  model: string,
-  seedIdea: string,
-  angle: string,
-  hook: string
-) {
+async function generateCaption(client: OpenAI, model: string, seedIdea: string, angle: string, hook: string) {
   const completion = await client.chat.completions.create({
     model,
     messages: [
       {
         role: 'system',
-        content: `You are a caption writer for Instagram/TikTok. Write captions that make people hit SAVE, not just like.
-
-The caption should:
-- Start with the hook (first line is critical)
-- Deliver real value (teach something, shift perspective)
-- Be structured for readability (line breaks, emojis sparingly)
-- End with a clear CTA that drives engagement
-- Be 150-250 words
-- Feel authentic, not salesy`,
+        content: `Write a caption (150-250 words) that makes people hit SAVE. Start with the hook, deliver value, end with CTA. Return ONLY the caption text, no preamble.`,
       },
-      {
-        role: 'user',
-        content: `Write a caption for:
-Hook: "${hook}"
-Idea: "${seedIdea}"
-Angle: "${angle}"
-
-Return ONLY the caption text.`,
-      },
+      { role: 'user', content: `Hook: "${hook}"\nIdea: "${seedIdea}"\nAngle: "${angle}"` },
     ],
     temperature: 0.75,
     max_tokens: 600,
@@ -285,177 +213,74 @@ Return ONLY the caption text.`,
   return { caption: completion.choices[0]?.message?.content?.trim() || '' };
 }
 
-// Repurposing generation
-async function generateRepurposed(
-  client: OpenAI,
-  model: string,
-  seedIdea: string,
-  angle: string,
-  hook: string,
-  caption: string
-) {
+async function generateRepurposed(client: OpenAI, model: string, seedIdea: string, angle: string, hook: string, caption: string) {
   const completion = await client.chat.completions.create({
     model,
     messages: [
       {
         role: 'system',
-        content: `You are a content repurposing expert. Transform content into multiple formats.
-
-Video Script (30-60 seconds):
-- Hook (first 3 seconds)
-- 3-5 beats (key points)
-- CTA (clear next step)
-- On-screen text cues [in brackets]
-
-Carousel Outline:
-- Slide 1: Hook/title
-- Slides 2-6: One point per slide
-- Slide 7: CTA/summary
-
-Alt Caption:
-- Shorter version for different platform tone
-- Same core message, different delivery`,
+        content: `Repurpose content into: video script (30-60s with hook, beats, CTA, text cues), carousel outline (slide-by-slide), and alt caption. Respond in JSON: { "videoScript": "...", "carouselOutline": "...", "altCaption": "..." }`,
       },
-      {
-        role: 'user',
-        content: `Repurpose this content:
-Idea: "${seedIdea}"
-Angle: "${angle}"
-Hook: "${hook}"
-Caption: "${caption}"
-
-Respond in this exact JSON format:
-{
-  "videoScript": "your video script here",
-  "carouselOutline": "your carousel outline here",
-  "altCaption": "your alt caption here"
-}`,
-      },
+      { role: 'user', content: `Idea: "${seedIdea}"\nAngle: "${angle}"\nHook: "${hook}"\nCaption: "${caption}"` },
     ],
     temperature: 0.7,
     max_tokens: 1200,
   });
 
   const response = completion.choices[0]?.message?.content?.trim() || '{}';
-
   try {
     const parsed = JSON.parse(response);
-    return {
-      videoScript: parsed.videoScript || '',
-      carouselOutline: parsed.carouselOutline || '',
-      altCaption: parsed.altCaption || '',
-    };
+    return { videoScript: parsed.videoScript || '', carouselOutline: parsed.carouselOutline || '', altCaption: parsed.altCaption || '' };
   } catch {
-    return {
-      videoScript: '',
-      carouselOutline: '',
-      altCaption: '',
-    };
+    return { videoScript: '', carouselOutline: '', altCaption: '' };
   }
 }
 
-// Individual repurpose functions for concurrent execution
-async function generateVideoScript(
-  client: OpenAI,
-  model: string,
-  seedIdea: string,
-  angle: string,
-  hook: string,
-  caption: string
-) {
+async function generateVideoScript(client: OpenAI, model: string, seedIdea: string, angle: string, hook: string, caption: string) {
   const completion = await client.chat.completions.create({
     model,
     messages: [
-      {
-        role: 'system',
-        content: `You are a video script writer. Create a 30-60 second video script with: hook (first 3 seconds), 3-5 beats (key points), CTA (clear next step), and on-screen text cues in [brackets]. Return ONLY the script text, no preamble.`,
-      },
-      {
-        role: 'user',
-        content: `Write a video script for:\nIdea: "${seedIdea}"\nAngle: "${angle}"\nHook: "${hook}"\nCaption: "${caption}"`,
-      },
+      { role: 'system', content: `Write a 30-60s video script with hook, 3-5 beats, CTA, and [text cues]. Return ONLY the script.` },
+      { role: 'user', content: `Idea: "${seedIdea}"\nAngle: "${angle}"\nHook: "${hook}"\nCaption: "${caption}"` },
     ],
     temperature: 0.7,
     max_tokens: 500,
   });
-
   return { videoScript: completion.choices[0]?.message?.content?.trim() || '' };
 }
 
-async function generateCarouselOutline(
-  client: OpenAI,
-  model: string,
-  seedIdea: string,
-  angle: string,
-  hook: string,
-  caption: string
-) {
+async function generateCarouselOutline(client: OpenAI, model: string, seedIdea: string, angle: string, hook: string, caption: string) {
   const completion = await client.chat.completions.create({
     model,
     messages: [
-      {
-        role: 'system',
-        content: `You are a carousel outline writer. Create a slide-by-slide outline: Slide 1 = hook/title, Slides 2-6 = one point per slide, Slide 7 = CTA/summary. Return ONLY the outline text, no preamble.`,
-      },
-      {
-        role: 'user',
-        content: `Write a carousel outline for:\nIdea: "${seedIdea}"\nAngle: "${angle}"\nHook: "${hook}"\nCaption: "${caption}"`,
-      },
+      { role: 'system', content: `Write a carousel outline: Slide 1 = hook, Slides 2-6 = one point each, Slide 7 = CTA. Return ONLY the outline.` },
+      { role: 'user', content: `Idea: "${seedIdea}"\nAngle: "${angle}"\nHook: "${hook}"\nCaption: "${caption}"` },
     ],
     temperature: 0.7,
     max_tokens: 400,
   });
-
   return { carouselOutline: completion.choices[0]?.message?.content?.trim() || '' };
 }
 
-async function generateAltCaption(
-  client: OpenAI,
-  model: string,
-  seedIdea: string,
-  angle: string,
-  hook: string,
-  caption: string
-) {
+async function generateAltCaption(client: OpenAI, model: string, seedIdea: string, angle: string, hook: string, caption: string) {
   const completion = await client.chat.completions.create({
     model,
     messages: [
-      {
-        role: 'system',
-        content: `You are a caption writer. Write a shorter alt caption variant for a different platform tone — same core message, different delivery. Return ONLY the caption text, no preamble.`,
-      },
-      {
-        role: 'user',
-        content: `Write an alt caption for:\nIdea: "${seedIdea}"\nAngle: "${angle}"\nHook: "${hook}"\nOriginal caption: "${caption}"`,
-      },
+      { role: 'system', content: `Write a shorter alt caption variant — same message, different tone. Return ONLY the caption.` },
+      { role: 'user', content: `Idea: "${seedIdea}"\nAngle: "${angle}"\nHook: "${hook}"\nOriginal: "${caption}"` },
     ],
     temperature: 0.7,
     max_tokens: 300,
   });
-
   return { altCaption: completion.choices[0]?.message?.content?.trim() || '' };
 }
 
-// Streaming caption generation
-async function generateCaptionStream(
-  client: OpenAI,
-  model: string,
-  seedIdea: string,
-  angle: string,
-  hook: string,
-  res: VercelResponse
-) {
+async function generateCaptionStream(client: OpenAI, model: string, seedIdea: string, angle: string, hook: string, res: Response) {
   const stream = await client.chat.completions.create({
     model,
     messages: [
-      {
-        role: 'system',
-        content: `Write a caption (150-250 words) that makes people hit SAVE. Start with the hook, deliver value, end with CTA. Return ONLY the caption text, no preamble.`,
-      },
-      {
-        role: 'user',
-        content: `Hook: "${hook}"\nIdea: "${seedIdea}"\nAngle: "${angle}"`,
-      },
+      { role: 'system', content: `Write a caption (150-250 words) that makes people hit SAVE. Start with the hook, deliver value, end with CTA. Return ONLY the caption text.` },
+      { role: 'user', content: `Hook: "${hook}"\nIdea: "${seedIdea}"\nAngle: "${angle}"` },
     ],
     temperature: 0.75,
     max_tokens: 600,
@@ -472,3 +297,5 @@ async function generateCaptionStream(
   res.write('data: [DONE]\n\n');
   res.end();
 }
+
+export default router;
