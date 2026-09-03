@@ -21,7 +21,11 @@ app.use('/api/boards', boardsRouter);
 app.use('/api/generate', generateRouter);
 
 // Serve static files from Vite build in production
-const clientDistPath = path.join(__dirname, '../dist');
+// When running from dist-server/server/, the dist/ folder is at ../../dist
+// When running from server/ (dev), the dist/ folder is at ../dist
+const clientDistPath = process.env.NODE_ENV === 'production'
+  ? path.join(__dirname, '../../dist')
+  : path.join(__dirname, '../dist');
 app.use(express.static(clientDistPath));
 
 // SPA fallback - serve index.html for all non-API routes
